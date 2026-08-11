@@ -1,0 +1,90 @@
+# QNAP / Container Station — ONE application, two services.
+#
+# Do not paste this file by hand — run `./deploy nas` on the Mac. It rewrites
+# `user:` to the real owner of the data dir, and the two placeholder qnet
+# addresses below to your real ones (NAS_HOST / PROXY_IP in .deploy.env — see
+# deploy.env.example), then copies the result to your clipboard. (Ship the
+# proxy's Dockerfile/Caddyfile/.env first with `./deploy proxy`; they live
+# outside this repo's synced tree on the NAS.)
+#
+# `version` is obsolete for Compose v2 (harmless warning) but Compose v1 needs it
+# to parse the v3 schema at all, and Container Station's vintage is unknown.
+#
+# NOTE: no mem_limit / pids_limit anywhere here. Container Station rejects resource
+# limits in the YAML ("Incompatible Docker Compose YAML File — Resources: Configure
+# resource limitations in Advanced Settings") and wants them set in its own panel.
+# The Mac compose file still caps them the normal way.
+version: "3"
+
+services:
+  # ── The calendar backend ────────────────────────────────────────────────────
+  family-calendar:
+    build: /share/Container/family-calendar/backend
+    image: family-calendar:nas
+    container_name: family-calendar
+    restart: unless-stopped
+    # Hardening (S7): non-root, read-only rootfs — only /data is writable — and no
+    # privilege escalation. `./deploy nas` rewrites `user:` to the data dir's actual
+    # owner, so the container can write the one directory it's allowed to.
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /share/Container/family-calendar/backend:/app:ro
+      - /share/Container/family-calendar/frontend:/frontend:ro
+      - /share/Container/family-calendar/data:/data
+    working_dir: /app
+    # Secrets are read from the NAS-side .env at container start, NOT written into
+    # this file: Container Station stores the YAML in plaintext and shows it in the
+    # Inspect view. `./deploy nas` pushes .env over ssh (file sync skips dotfiles).
+    # Every other var the backend reads has a code default, so TZ — which only the
+    # OS uses — is all that's left here.
+    env_file:
+      - /share/Container/family-calendar/.env
+    environment:
+      - TZ=Europe/Stockholm
+    networks:
+      qnet-static-eth1-dc7e3a:
+        ipv4_address: APP_IP_PLACEHOLDER
+
+  # ── HTTPS for the home app ──────────────────────────────────────────────────
+  # Caddy terminates TLS so the relay PWA's "AI content" tab can iframe the home
+  # app (an https page can't embed http, and iOS won't accept a self-signed cert).
+  # The certificate comes from Let's Encrypt via a DNS-01 challenge against DuckDNS
+  # — ownership is proven with a DNS TXT record, never an inbound connection — so
+  # NO port is forwarded and the NAS stays closed. The hostname is public but
+  # resolves to a private LAN IP, so it reaches nothing from outside.
+  # Its Dockerfile/Caddyfile/.env are shipped by `./deploy proxy`.
+  family-cal-proxy:
+    build: /share/Container/family-calendar-proxy
+    image: caddy-duckdns:nas
+    container_name: family-calendar-proxy
+    restart: unless-stopped
+    env_file:
+      - /share/Container/family-calendar-proxy/.env
+    volumes:
+      - /share/Container/family-calendar-proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # The certificate and ACME account key live here. Verified to survive a
+      # Restart (the cert's notAfter is unchanged afterwards). Whether it survives
+      # a Recreate is untested — if a Recreate ever wipes it, Caddy re-issues, and
+      # Let's Encrypt allows only 5 duplicate certs per hostname per week. Check
+      # with `./deploy check` after any Recreate: a changed expiry means it didn't
+      # persist, and this should become a bind mount.
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      # Own IP on the same bridge as the backend, so :443 can't collide with the
+      # QTS web UI on the NAS host itself.
+      qnet-static-eth1-dc7e3a:
+        ipv4_address: PROXY_IP_PLACEHOLDER
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  qnet-static-eth1-dc7e3a:
+    external: true

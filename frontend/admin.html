@@ -1,0 +1,3063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title id="page-title">Family Calendar — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg: #f5f4f0;
+  --surface: #ffffff;
+  --surface2: #f0ede8;
+  --border: #e2ddd6;
+  --border2: #ccc7be;
+  --text: #1a1815;
+  --text2: #6b6560;
+  --text3: #a09890;
+  --accent: #2d6be4;
+  --accent-bg: #eef3fd;
+  --danger: #d94040;
+  --danger-bg: #fdeaea;
+  --success: #2a8a4a;
+  --success-bg: #e8f7ed;
+  --owner: #378ADD; --owner-bg: #B5D4F4; --owner-text: #0C447C;
+  --spouse: #D4537E; --spouse-bg: #F4C0D1; --spouse-text: #72243E;
+  --kid: #639922;   --kid-bg: #C0DD97;   --kid-text: #27500A;
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; min-height: 100vh; }
+a { color: var(--accent); text-decoration: none; }
+
+/* Layout */
+.shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+.sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 0; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
+.sidebar-logo { padding: 20px 20px 16px; border-bottom: 1px solid var(--border); }
+.sidebar-logo h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.02em; }
+.sidebar-logo p { font-size: 11px; color: var(--text3); margin-top: 2px; }
+.sidebar-nav { flex: 1; padding: 12px 0; overflow-y: auto; }
+.nav-section { padding: 4px 12px 2px; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text3); margin-top: 8px; }
+.nav-item { display: flex; align-items: center; gap: 8px; padding: 8px 20px; cursor: pointer; border-radius: 0; font-size: 13px; color: var(--text2); transition: all 0.12s; border-left: 2px solid transparent; }
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+.nav-item.active { background: var(--accent-bg); color: var(--accent); border-left-color: var(--accent); font-weight: 500; }
+.nav-icon { width: 16px; height: 16px; opacity: 0.7; }
+.sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); }
+.save-btn { width: 100%; padding: 9px; background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; transition: opacity 0.15s; }
+.save-btn:hover { opacity: 0.9; }
+.save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.save-status { font-size: 11px; text-align: center; margin-top: 6px; min-height: 14px; color: var(--text3); }
+.save-status.ok { color: var(--success); }
+.save-status.err { color: var(--danger); }
+
+/* Main */
+.main { padding: 28px 32px; max-width: 900px; }
+.section { display: none; }
+.section.active { display: block; }
+.section-title { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 4px; }
+.section-desc { font-size: 13px; color: var(--text2); margin-bottom: 24px; }
+
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+.card-title { font-size: 13px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
+
+/* Form elements */
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 12px; font-weight: 500; color: var(--text2); margin-bottom: 5px; }
+.field input, .field select, .field textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-family: 'DM Sans', sans-serif; font-size: 13px; color: var(--text); background: var(--surface);
+  transition: border-color 0.12s;
+}
+.field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+.field textarea { resize: vertical; min-height: 80px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+/* Toggle */
+.toggle-wrap { display: flex; align-items: center; gap: 10px; }
+.toggle { position: relative; width: 38px; height: 20px; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; inset: 0; background: var(--border2); border-radius: 20px; cursor: pointer; transition: background 0.2s; }
+.toggle-slider:before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform 0.2s; }
+.toggle input:checked + .toggle-slider { background: var(--accent); }
+.toggle input:checked + .toggle-slider:before { transform: translateX(18px); }
+.toggle-label { font-size: 13px; color: var(--text2); }
+
+/* List items */
+.list-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--surface2); border-radius: var(--radius-sm); margin-bottom: 6px; border: 1px solid var(--border); }
+.list-item-main { flex: 1; font-size: 13px; }
+.list-item-sub { font-size: 11px; color: var(--text3); margin-top: 1px; font-family: 'DM Mono', monospace; }
+.btn-icon { background: none; border: none; cursor: pointer; padding: 4px; border-radius: 4px; color: var(--text3); display: flex; align-items: center; justify-content: center; }
+.btn-icon:hover { background: var(--danger-bg); color: var(--danger); }
+.add-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.add-row input, .add-row select { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: 'DM Sans', sans-serif; font-size: 13px; color: var(--text); background: var(--surface); flex: 1; min-width: 100px; }
+.add-row input:focus, .add-row select:focus { outline: none; border-color: var(--accent); }
+.btn-add { padding: 7px 14px; background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius-sm); font-family: 'DM Sans', sans-serif; font-size: 13px; cursor: pointer; white-space: nowrap; color: var(--text); }
+.btn-add:hover { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+
+/* Member chips */
+.member-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+
+/* Event icon select */
+.icon-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.icon-opt { width: 32px; height: 32px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; transition: all 0.12s; }
+.icon-opt:hover { border-color: var(--accent); background: var(--accent-bg); }
+.icon-opt.selected { border-color: var(--accent); background: var(--accent-bg); }
+
+/* Meal plan AI */
+.meal-prompt-wrap { position: relative; }
+.meal-prompt-wrap textarea { padding-right: 100px; }
+.suggest-btn { position: absolute; right: 8px; bottom: 8px; padding: 5px 12px; background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); font-family: 'DM Sans', sans-serif; font-size: 12px; cursor: pointer; }
+.suggest-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.suggest-btn.secondary { background: var(--surface); color: var(--text2); border: 1px solid var(--border); }
+.meal-week-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
+.meal-cell { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; min-height: 96px; display: flex; flex-direction: column; }
+.meal-cell-day { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); margin-bottom: 6px; }
+.meal-cell input { width: 100%; border: none; background: none; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500; color: var(--text); padding: 0; margin-bottom: 4px; }
+.meal-cell input:focus { outline: none; }
+.meal-cell textarea { width: 100%; border: none; background: none; font-family: 'DM Sans', sans-serif; font-size: 12px; color: var(--text2); padding: 0; resize: none; height: 44px; }
+.meal-cell textarea:focus { outline: none; }
+.meal-cell.loading { opacity: 0.5; pointer-events: none; }
+/* Recipe-linked meal cell */
+.meal-cell-link-row { display: flex; align-items: flex-start; gap: 6px; }
+.meal-cell-name-link { flex: 1; text-align: left; background: none; border: none; padding: 0; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; color: var(--accent); cursor: pointer; line-height: 1.3; word-break: break-word; }
+.meal-cell-name-link:hover { text-decoration: underline; }
+.meal-cell-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.meal-cell-actions button { background: none; border: none; color: var(--text3); font-size: 13px; cursor: pointer; padding: 1px 4px; line-height: 1; }
+.meal-cell-actions button:hover { color: var(--text); }
+.meal-cell-notes { font-size: 12px; color: var(--text2); margin-top: 5px; line-height: 1.4; white-space: pre-wrap; }
+/* Recipe viewer modal */
+.recipe-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 300; display: none; align-items: center; justify-content: center; padding: 24px; }
+.recipe-modal.show { display: flex; }
+.recipe-sheet { background: var(--surface); width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto; border-radius: var(--radius); padding: 0 24px 28px; }
+.recipe-sheet-head { position: sticky; top: 0; background: var(--surface); display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 16px 0 6px; }
+.recipe-edit-btn { background: var(--accent-bg); color: var(--accent); border: none; border-radius: var(--radius-sm); font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; padding: 7px 12px; cursor: pointer; }
+.recipe-close { background: var(--surface2); border: none; width: 32px; height: 32px; border-radius: 50%; font-size: 15px; cursor: pointer; color: var(--text2); flex-shrink: 0; }
+.recipe-title { font-size: 21px; font-weight: 700; margin: 0 0 6px; }
+.recipe-desc { font-size: 14px; color: var(--text2); line-height: 1.45; margin-bottom: 12px; }
+.recipe-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.recipe-chip { font-size: 12px; background: var(--surface2); color: var(--text2); padding: 4px 10px; border-radius: 12px; }
+.recipe-h { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); margin: 18px 0 8px; }
+.recipe-ing { display: flex; gap: 8px; font-size: 14px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.recipe-ing .amt { color: var(--text3); flex-shrink: 0; min-width: 84px; }
+.recipe-ing .ing-note { color: var(--text3); }
+.recipe-step { display: flex; gap: 10px; font-size: 14px; line-height: 1.5; margin-bottom: 12px; }
+.recipe-step .num { flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-bg); color: var(--accent); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.recipe-source { font-size: 13px; color: var(--text3); margin-top: 18px; word-break: break-all; }
+.recipe-source a { color: var(--accent); }
+/* Activity log */
+.log-row { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); margin-bottom: 6px; overflow: hidden; }
+.log-row.error-row { border-color: #dc2626; }
+.log-head { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; font-size: 13px; }
+.log-head:hover { background: var(--surface2); }
+.log-time { color: var(--text3); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.log-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; }
+.log-badge.info { background: var(--surface2); color: var(--text2); }
+.log-badge.warn { background: #f59e0b; color: #fff; }
+.log-badge.error { background: #dc2626; color: #fff; }
+.log-cat { font-size: 11px; color: var(--text3); background: var(--surface2); padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+.log-msg { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-who { font-size: 11px; color: var(--text3); white-space: nowrap; }
+.log-detail { border-top: 1px solid var(--border); padding: 10px 12px; background: var(--bg); font-family: ui-monospace, Menlo, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; color: var(--text2); max-height: 340px; overflow: auto; }
+.log-detail.hidden { display: none; }
+/* AI token usage */
+.usage-today { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.usage-today b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.usage-today span { font-size: 13px; color: var(--text3); }
+.usage-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 2px 0; }
+.usage-row .d { width: 58px; color: var(--text3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.usage-row .bar { flex: 1; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+.usage-row .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.usage-row .n { width: 92px; text-align: right; color: var(--text2); font-variant-numeric: tabular-nums; }
+.usage-models { margin-top: 10px; font-size: 12px; color: var(--text3); }
+.usage-models div { padding: 1px 0; }
+.week-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.week-nav button { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 10px; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 13px; }
+.week-nav button:hover { background: var(--surface2); }
+.week-nav span { font-size: 14px; font-weight: 500; }
+
+/* Color swatch */
+.color-swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border); flex-shrink: 0; }
+
+/* Divider */
+hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+/* Recipe library */
+.recipe-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.course-heading { grid-column: 1 / -1; font-size: 12px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .05em; margin: 10px 0 0; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.course-heading:first-child { margin-top: 0; }
+.course-heading span { color: var(--text2); font-weight: 600; }
+/* Recipe Library (browse view) */
+.lib-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 12px; position: sticky; top: 0; background: var(--bg); padding: 6px 0; z-index: 5; }
+.lib-filters input[type=text] { flex: 1; min-width: 200px; }
+.lib-filters input, .lib-filters select { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); color: var(--text); }
+.lib-count { font-size: 12px; color: var(--text3); margin-bottom: 6px; }
+.lib-course-h { font-size: 12px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .05em; margin: 16px 0 4px; padding-bottom: 3px; border-bottom: 1px solid var(--border); }
+.lib-course-h span { color: var(--text2); font-weight: 600; }
+.lib-row { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; margin-bottom: 6px; }
+.lib-row:hover { border-color: var(--accent); }
+.lib-row .lib-nm { font-weight: 600; flex: 1; min-width: 0; }
+.lib-row .lib-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
+.lib-stars { color: #e0a93a; font-size: 12px; }
+/* Pending-import merge (F8c) */
+.pending-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); margin-top: 6px; }
+.pending-item .pi-name { font-weight: 600; flex: 1; min-width: 0; }
+.pending-item .pi-match { font-size: 12px; color: var(--text2); }
+.merge-row { display: grid; grid-template-columns: 130px 1fr 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); align-items: start; }
+.merge-row.identical { opacity: .55; }
+.merge-lbl { font-size: 12px; font-weight: 600; color: var(--text2); }
+.merge-col { font-size: 13px; white-space: pre-wrap; word-break: break-word; border: 1.5px solid transparent; border-radius: var(--radius-sm); padding: 6px 8px; cursor: pointer; background: var(--surface2); }
+.merge-col.chosen { border-color: var(--accent); background: var(--accent-bg); }
+.merge-col .mc-tag { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text3); margin-bottom: 3px; }
+.merge-col.chosen .mc-tag { color: var(--accent); }
+.recipe-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; cursor: pointer; position: relative; transition: border-color 0.12s, box-shadow 0.12s; }
+.recipe-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,.07); }
+.recipe-card.needs-review { border-color: #e6a817; box-shadow: 0 0 0 1px #e6a817 inset; }
+.recipe-card-name { font-size: 14px; font-weight: 600; margin-bottom: 6px; padding-right: 24px; line-height: 1.3; }
+.recipe-card-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 4px; }
+.tag-pill { font-size: 10px; padding: 2px 7px; border-radius: 20px; background: var(--surface2); color: var(--text2); border: 1px solid var(--border); white-space: nowrap; }
+.tag-btn { padding: 4px 10px; border: 1.5px solid var(--border2); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 12px; cursor: pointer; background: var(--surface); color: var(--text2); transition: all 0.12s; }
+.tag-btn.tag-btn-on { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); font-weight: 500; }
+.ingredient-row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+.ingredient-row input { padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: 'DM Sans', sans-serif; font-size: 12px; color: var(--text); background: var(--surface); flex: 1; min-width: 0; }
+.ingredient-row input:focus { outline: none; border-color: var(--accent); }
+.step-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: flex-start; }
+.step-num { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 6px; }
+.step-text { flex: 1; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: 'DM Sans', sans-serif; font-size: 12px; color: var(--text); background: var(--surface); resize: vertical; min-height: 56px; }
+.step-text:focus, .step-dur:focus { outline: none; border-color: var(--accent); }
+.step-dur { width: 60px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: 'DM Sans', sans-serif; font-size: 12px; color: var(--text); background: var(--surface); }
+.recipe-section-label { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 10px; }
+/* Shopping */
+.shop-cat { font-size: 11px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .05em; margin: 14px 0 4px; }
+.shop-row { display: flex; align-items: center; gap: 9px; padding: 6px 2px; border-bottom: 1px solid var(--border); font-size: 14px; cursor: pointer; max-width: 520px; }
+.shop-row input { width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
+.shop-row.bought .shop-item { color: var(--text3); text-decoration: line-through; }
+.shop-qty { color: var(--text3); font-size: 12px; }
+.shop-empty { color: var(--text3); font-size: 13px; padding: 10px 0; }
+.day-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.daychip { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 11px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text2); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; max-width: 120px; }
+.daychip.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); }
+.daychip .dc-name { font-size: 10px; font-weight: 500; color: var(--text3); max-width: 104px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.daychip.on .dc-name { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- RECIPE VIEWER (read-only sheet, opened from a linked meal) -->
+<div class="recipe-modal" id="recipe-modal" onclick="if(event.target===this)closeRecipe()">
+  <div class="recipe-sheet" id="recipe-sheet">
+    <div class="recipe-sheet-head">
+      <button class="recipe-edit-btn" id="recipe-edit-btn" onclick="editRecipeFromModal()">Edit recipe ✎</button>
+      <button class="recipe-close" onclick="closeRecipe()">✕</button>
+    </div>
+    <div id="recipe-body"></div>
+  </div>
+</div>
+
+<div class="shell">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <h1 id="sidebar-app-name">🏠 Family Calendar</h1>
+      <p>Admin panel</p>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Calendar</div>
+      <div class="nav-item active" onclick="showSection('events', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M5 2v2M11 2v2M2 7h12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Events
+      </div>
+      <div class="nav-item" onclick="showSection('recurring', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M13 8A5 5 0 113 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M13 5v3h-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Recurring
+      </div>
+      <div class="nav-item" onclick="showSection('birthdays', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M8 2c.4 0 .7.3.7.7V4H11a1 1 0 011 1v1.5H4V5a1 1 0 011-1h2.3V2.7C7.3 2.3 7.6 2 8 2zM3 8h10v1c0 .5-.6 1.2-1.8.8C10.4 9.5 9.9 9 9.5 9s-.9.5-1.7.8C6.6 10.2 6 9.5 6 9s-.7 1.5-2 1C2.7 9.5 3 8.5 3 8zm0 3.5h10V14H3v-2.5z" fill="currentColor"/></svg>
+        Birthdays
+      </div>
+      <div class="nav-item" onclick="showSection('archive', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M3 5v7a1 1 0 001 1h8a1 1 0 001-1V5" stroke="currentColor" stroke-width="1.3"/><path d="M6 8h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Archive
+      </div>
+      <div class="nav-section">Meals</div>
+      <div class="nav-item" onclick="showSection('library', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M6 6h4M6 9h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Recipe Library
+      </div>
+      <div class="nav-item" onclick="showSection('meals', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M5 2v5c0 1.7 1.3 3 3 3s3-1.3 3-3V2M8 10v4M6 14h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Meal planner
+      </div>
+      <div class="nav-item" onclick="showSection('shopping', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M2 3h1.5l1.7 7.5h6l1.3-5.5H5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.5" cy="13" r="1" fill="currentColor"/><circle cx="11.5" cy="13" r="1" fill="currentColor"/></svg>
+        Shopping
+      </div>
+      <div class="nav-section">Settings</div>
+      <div class="nav-item" onclick="showSection('recipes', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M10.5 2.5l3 3-8 8-3.5.5.5-3.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M9 4l3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Recipe editor
+      </div>
+      <div class="nav-item" onclick="showSection('family', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><circle cx="5" cy="8" r="2.5" stroke="currentColor" stroke-width="1.3"/><circle cx="11" cy="8" r="2.5" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="4" r="2.5" stroke="currentColor" stroke-width="1.3"/></svg>
+        Colors
+      </div>
+      <div class="nav-item" onclick="showSection('icons', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+        Icons
+      </div>
+      <div class="nav-item" onclick="showSection('ai', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.3"/><path d="M6 8h4M8 6v4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        AI settings
+      </div>
+      <div class="nav-item" onclick="showSection('mailsync', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M2.5 4.5L8 9l5.5-4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Mail sync
+      </div>
+      <div class="nav-item" onclick="showSection('logs', this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M3 3h10M3 6h10M3 9h7M3 12h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Logs
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="save-btn" onclick="saveAll()">Save changes</button>
+      <div class="save-status" id="save-status"></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- EVENTS -->
+    <div class="section active" id="section-events">
+      <div class="section-title">Events</div>
+      <div class="section-desc">One-off family events. Each event belongs to a family member and has an icon.</div>
+      <div class="card">
+        <div class="card-title">Add event</div>
+        <div class="field-row">
+          <div class="field"><label>Date</label><input type="date" id="ev-date" /></div>
+          <div class="field"><label>End date (opt.)</label><input type="date" id="ev-end" /></div>
+          <div class="field"><label>Time (opt.)</label><input type="time" id="ev-time" /></div>
+          <div class="field"><label>Person</label>
+            <select id="ev-who"></select>
+          </div>
+        </div>
+        <div class="field"><label>Label</label><input type="text" id="ev-label" placeholder="e.g. Football practice" /></div>
+        <div class="field"><label>Icon</label>
+          <div class="icon-grid" id="ev-icon-grid"></div>
+          <input type="hidden" id="ev-icon-val" value="meeting" />
+        </div>
+        <div class="add-row"><button class="btn-add" onclick="addEvent()">+ Add event</button></div>
+        <div id="events-list" style="margin-top:16px;"></div>
+      </div>
+    </div>
+
+    <!-- ARCHIVE -->
+    <div class="section" id="section-archive">
+      <div class="section-title">Archive</div>
+      <div class="section-desc">Events older than last month.</div>
+      <div class="card">
+        <div id="archive-list"></div>
+      </div>
+    </div>
+
+    <!-- BIRTHDAYS -->
+    <div class="section" id="section-birthdays">
+      <div class="section-title">Birthdays</div>
+      <div class="section-desc">Recurring yearly birthdays of loved ones. Always shown with a cake icon and name. Add the birth year to show the age on the calendar.</div>
+      <div class="card">
+        <div class="add-row">
+          <input id="bd-name" placeholder="Name (e.g. Mom's birthday)" />
+          <input id="bd-month" type="number" min="1" max="12" placeholder="Month" style="max-width:80px" />
+          <input id="bd-day" type="number" min="1" max="31" placeholder="Day" style="max-width:70px" />
+          <input id="bd-year" type="number" min="1900" max="2100" placeholder="Year (opt.)" style="max-width:100px" />
+          <button class="btn-add" onclick="addBirthday()">+ Add</button>
+        </div>
+        <div id="birthdays-list" style="margin-top:16px;"></div>
+      </div>
+    </div>
+
+    <!-- RECURRING -->
+    <div class="section" id="section-recurring">
+      <div class="section-title">Recurring events</div>
+      <div class="section-desc">Events that repeat on a fixed schedule. Shown as icon-only on the display (no text label).</div>
+      <div class="card">
+        <div class="field-row">
+          <div class="field"><label>Label</label><input type="text" id="rec-label" placeholder="e.g. Garbage" /></div>
+          <div class="field"><label>Start date</label><input type="date" id="rec-start" /></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Repeats</label>
+            <select id="rec-freq" onchange="document.getElementById('rec-byday-wrap').style.display = this.value === 'weekly' ? '' : 'none'">
+              <option value="days">Every N days</option>
+              <option value="weekly">Weekly</option>
+            </select>
+          </div>
+          <div class="field"><label>Interval (days / weeks)</label><input type="number" id="rec-interval" min="1" value="7" /></div>
+          <div class="field"><label>Owner</label><select id="rec-who"></select></div>
+        </div>
+        <div class="field" id="rec-byday-wrap" style="display:none;">
+          <label>On weekdays</label>
+          <div id="rec-byday" style="display:flex;gap:10px;flex-wrap:wrap;padding:4px 0;">
+            <label style="font-weight:400;"><input type="checkbox" value="MO" /> Mon</label>
+            <label style="font-weight:400;"><input type="checkbox" value="TU" /> Tue</label>
+            <label style="font-weight:400;"><input type="checkbox" value="WE" /> Wed</label>
+            <label style="font-weight:400;"><input type="checkbox" value="TH" /> Thu</label>
+            <label style="font-weight:400;"><input type="checkbox" value="FR" /> Fri</label>
+            <label style="font-weight:400;"><input type="checkbox" value="SA" /> Sat</label>
+            <label style="font-weight:400;"><input type="checkbox" value="SU" /> Sun</label>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Until (opt.)</label><input type="date" id="rec-until" /></div>
+          <div class="field"><label>Time (opt.)</label><input type="time" id="rec-time" /></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Icon</label>
+            <div class="icon-grid" id="rec-icon-grid"></div>
+            <input type="hidden" id="rec-icon-val" value="trash" />
+          </div>
+        </div>
+        <div class="add-row"><button class="btn-add" onclick="addRecurring()">+ Add</button></div>
+        <hr />
+        <div id="recurring-list"></div>
+      </div>
+    </div>
+
+    <!-- MEALS -->
+    <div class="section" id="section-meals">
+      <div class="section-title">Meal planner</div>
+      <div class="section-desc">Plan dinners week by week. Use AI to suggest a full week based on your schedule and recipe library.</div>
+      <div class="week-nav">
+        <button onclick="mealWeekShift(-1)">←</button>
+        <span id="meal-week-label"></span>
+        <button onclick="mealWeekShift(1)">→</button>
+      </div>
+      <div class="meal-prompt-wrap card" style="padding:12px;">
+        <div class="field" style="margin:0 0 10px">
+          <label style="display:flex;justify-content:space-between;align-items:center;">
+            <span>Weekly planning prompt <span style="font-weight:400;color:var(--text3);">· always applied</span></span>
+            <span onclick="gotoAISettings()" style="font-size:11px;color:var(--accent);cursor:pointer;">edit ↗</span>
+          </label>
+          <div id="meal-standing-prompt" style="font-size:12px;color:var(--text2);background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;white-space:pre-wrap;">—</div>
+        </div>
+        <div class="field" style="margin:0">
+          <label>Extra guidance for this week (optional) <span style="font-weight:400;color:var(--text3);">· added on top</span></label>
+          <textarea id="meal-user-prompt" placeholder="e.g. more fish this week, kid has a friend Friday, quick meals Tuesday…" style="min-height:52px;padding-right:110px;"></textarea>
+        </div>
+        <button class="suggest-btn" id="meal-suggest-btn" onclick="suggestMeals()">Suggest week ↗</button>
+      </div>
+      <div class="meal-week-grid" id="meal-week-grid"></div>
+      <div class="meal-prompt-wrap card" style="padding:12px;margin-top:10px;">
+        <div class="field" style="margin:0">
+          <label>Refine with AI — change a day or the week</label>
+          <textarea id="meal-refine-prompt" placeholder="e.g. lighter Tuesday, more veg, swap Wednesday for pasta…" style="min-height:52px;padding-right:110px;"></textarea>
+        </div>
+        <button class="suggest-btn" id="meal-refine-btn" onclick="refineMealWeek()">Ask AI ↗</button>
+      </div>
+      <div style="margin-top:10px;text-align:right;">
+        <button class="btn-add" onclick="saveMealWeek()">Save this week's plan</button>
+      </div>
+    </div>
+
+    <!-- SHOPPING -->
+    <div class="section" id="section-shopping">
+      <div class="section-title">Shopping list</div>
+      <div class="section-desc">The week's ingredients, grouped by aisle with amounts summed across the selected days. Tick items you've bought — or already have at home — to cross them off.</div>
+      <div class="week-nav">
+        <button onclick="shopWeekShift(-1)">←</button>
+        <span id="shop-week-label"></span>
+        <button onclick="shopWeekShift(1)">→</button>
+      </div>
+      <div id="shop-daychips" class="day-chips"></div>
+      <div id="shop-list"></div>
+      <div style="margin-top:16px;display:flex;align-items:center;gap:12px;">
+        <button class="save-btn" id="shop-publish-btn" onclick="shopPublish()" style="width:auto;padding:9px 16px;">📲 Publish to phone</button>
+        <span id="shop-publish-status" style="font-size:13px;color:var(--text2);"></span>
+      </div>
+    </div>
+
+    <!-- RECIPES -->
+    <div class="section" id="section-recipes">
+      <div class="section-title">Recipe editor</div>
+      <div class="section-desc">Add, import, and edit recipes (ingredients, steps, timing, provenance). To browse and search, use the <b>Recipe Library</b> under Meals.</div>
+
+      <!-- List view -->
+      <div id="recipe-list-view">
+        <div id="pending-banner" style="display:none;margin-bottom:12px;"></div>
+        <div id="review-banner" style="display:none;margin-bottom:12px;"></div>
+
+        <!-- (1) Import -->
+        <div class="card">
+          <div class="card-title">Import recipes</div>
+          <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button class="btn-add" onclick="openRecipeForm(null)">+ New recipe</button>
+            <label class="btn-add" style="cursor:pointer;">📷 Scan a photo
+              <input type="file" id="recipe-photo" accept="image/*" hidden onchange="extractRecipePhoto(this.files[0])" />
+            </label>
+            <label class="btn-add" style="cursor:pointer;">⇪ Import from Notion
+              <input type="file" id="notion-zip" accept=".zip,application/zip" hidden onchange="importNotionZip(this.files[0])" />
+            </label>
+            <span id="notion-import-status" style="font-size:13px;color:var(--text2);"></span>
+            <label style="margin-left:auto;font-size:13px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;" title="Off keeps the source's original language">
+              <input type="checkbox" id="import-translate" style="width:auto;" /> Translate to English
+            </label>
+            <label style="font-size:13px;color:var(--text3);display:flex;align-items:center;gap:6px;">Imports added by
+              <select id="import-who" style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;"></select>
+            </label>
+          </div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:8px;line-height:1.5;">
+            Or import <b>one recipe from a link</b> (recipe site or Instagram) — or paste the full text. For Instagram, if the link doesn't work, paste the caption text instead.
+          </div>
+          <div style="display:flex;gap:8px;align-items:flex-start;">
+            <textarea id="link-import-input" placeholder="Paste a recipe URL, an Instagram link, or the full recipe text…" style="flex:1;min-height:44px;padding:9px 11px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;resize:vertical;"></textarea>
+            <button class="btn-add" id="link-import-btn" onclick="importFromLink()">Import ↗</button>
+          </div>
+          <span id="link-import-status" style="font-size:13px;color:var(--text2);display:inline-block;margin-top:6px;"></span>
+          <div id="notion-import-help" style="font-size:12px;color:var(--text3);margin-top:12px;line-height:1.5;">
+            <b>Notion:</b> open the recipes page → <b>•••</b> → <b>Export</b> → format <b>Markdown &amp; CSV</b>, <b>Include subpages</b> → drop the <b>.zip</b> above. Each page becomes a recipe — link-only pages are followed and read automatically. Recipes keep their original language; a page matching an existing recipe is queued under <b>Pending imports</b> to compare &amp; merge instead of duplicating.
+          </div>
+          <div id="notion-import-results" style="margin-top:12px;"></div>
+        </div>
+
+        <!-- (2) Backup -->
+        <div class="card">
+          <div class="card-title">Data &amp; backup</div>
+          <div class="section-desc" style="margin:-4px 0 12px;">Download a zip snapshot for safekeeping or migration. To restore, unzip into the server's <code>data/</code> directory (recipes land in <code>data/recipes/</code>) and restart the backend.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <a class="btn-add" href="/export" download style="text-decoration:none;">⬇ Export all data</a>
+            <a class="btn-add" href="/export/recipes" download style="text-decoration:none;">⬇ Export recipes (zip)</a>
+          </div>
+        </div>
+
+        <!-- (3) Filter + recipe list -->
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0 12px;">
+          <span style="font-size:13px;color:var(--text3);">Filter</span>
+          <select id="filter-source" onchange="renderRecipes()" style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;">
+            <option value="">All sources</option>
+            <option value="url">Website</option>
+            <option value="instagram">Instagram</option>
+            <option value="book">Book</option>
+            <option value="magazine">Magazine</option>
+            <option value="person">Person</option>
+            <option value="text">Pasted text</option>
+            <option value="photo">Photo scan</option>
+            <option value="notion">Notion</option>
+            <option value="ai">AI generated</option>
+            <option value="memory">Memory / family</option>
+          </select>
+          <select id="filter-who" onchange="renderRecipes()" style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;"></select>
+          <select id="filter-course" onchange="renderRecipes()" style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;">
+            <option value="">All courses</option>
+            <option value="main">Main course</option>
+            <option value="side">Side dish</option>
+            <option value="soup">Soup</option>
+            <option value="salad">Salad</option>
+            <option value="dessert">Dessert</option>
+            <option value="breakfast">Breakfast</option>
+            <option value="baking">Baking &amp; bread</option>
+            <option value="snack">Snack</option>
+            <option value="drink">Drink</option>
+            <option value="other">Other</option>
+          </select>
+          <button class="btn-add" id="classify-courses-btn" onclick="classifyCourses()" title="Assign a course to recipes that don't have one">Classify courses</button>
+          <span id="classify-courses-status" style="font-size:13px;color:var(--text2);"></span>
+          <span id="recipe-count" style="font-size:13px;color:var(--text3);margin-left:auto;"></span>
+        </div>
+        <div class="recipe-cards" id="recipes-grid"></div>
+      </div>
+
+      <!-- Edit / create form -->
+      <div id="recipe-form-view" style="display:none;">
+        <div style="margin-bottom:14px;">
+          <a href="#" onclick="closeRecipeForm();return false;" style="font-size:13px;">← Back to library</a>
+        </div>
+        <div class="card">
+          <div class="card-title" id="recipe-form-title">New recipe</div>
+
+          <div class="field"><label>Recipe name</label><input type="text" id="rf-name" placeholder="e.g. Pasta Carbonara" /></div>
+          <div class="field"><label>Description</label><textarea id="rf-description" style="min-height:56px;" placeholder="Short description of the dish…"></textarea></div>
+
+          <hr />
+          <div class="recipe-section-label">Classification</div>
+          <div class="field-row">
+            <div class="field"><label>Course</label>
+              <select id="rf-course">
+                <option value="">— none —</option>
+                <option value="main">Main course</option>
+                <option value="side">Side dish</option>
+                <option value="soup">Soup</option>
+                <option value="salad">Salad</option>
+                <option value="dessert">Dessert</option>
+                <option value="breakfast">Breakfast</option>
+                <option value="baking">Baking &amp; bread</option>
+                <option value="snack">Snack</option>
+                <option value="drink">Drink</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="field"><label>Cuisine</label><input type="text" id="rf-cuisine" placeholder="Italian, Turkish, Swedish…" /></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Tags</label><input type="text" id="rf-tags" placeholder="quick, vegetarian, kid-friendly…" /></div>
+            <div class="field"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Meal type</label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px;" id="rf-meal-type-btns">
+                <button type="button" class="tag-btn" data-val="breakfast" onclick="toggleTagBtn(this)">Breakfast</button>
+                <button type="button" class="tag-btn" data-val="lunch" onclick="toggleTagBtn(this)">Lunch</button>
+                <button type="button" class="tag-btn" data-val="dinner" onclick="toggleTagBtn(this)">Dinner</button>
+                <button type="button" class="tag-btn" data-val="snack" onclick="toggleTagBtn(this)">Snack</button>
+                <button type="button" class="tag-btn" data-val="dessert" onclick="toggleTagBtn(this)">Dessert</button>
+              </div>
+            </div>
+            <div class="field"><label>Dietary</label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px;" id="rf-dietary-btns">
+                <button type="button" class="tag-btn" data-val="vegetarian" onclick="toggleTagBtn(this)">Vegetarian</button>
+                <button type="button" class="tag-btn" data-val="vegan" onclick="toggleTagBtn(this)">Vegan</button>
+                <button type="button" class="tag-btn" data-val="gluten-free" onclick="toggleTagBtn(this)">Gluten-free</button>
+                <button type="button" class="tag-btn" data-val="dairy-free" onclick="toggleTagBtn(this)">Dairy-free</button>
+              </div>
+            </div>
+          </div>
+
+          <hr />
+          <div class="recipe-section-label">Timing &amp; Servings</div>
+          <div class="field-row-3">
+            <div class="field"><label>Prep (min)</label><input type="number" id="rf-prep" min="0" value="0" /></div>
+            <div class="field"><label>Cook (min)</label><input type="number" id="rf-cook" min="0" value="0" /></div>
+            <div class="field"><label>Inactive (min)</label><input type="number" id="rf-inactive" min="0" value="0" placeholder="marinate, rest…" /></div>
+          </div>
+          <div class="field-row-3">
+            <div class="field"><label>Servings</label><input type="number" id="rf-servings" min="1" value="4" /></div>
+            <div class="field"><label>Difficulty (1–5)</label><input type="number" id="rf-difficulty" min="1" max="5" value="2" /></div>
+            <div class="field"><label>Cost</label>
+              <select id="rf-cost"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
+            </div>
+          </div>
+          <div class="field">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="rf-leftovers" style="width:auto;" />
+              Creates leftovers — the planner can cover the next 1–2 days
+            </label>
+          </div>
+
+          <hr />
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div class="recipe-section-label" style="margin:0;">Ingredients</div>
+            <button type="button" class="btn-add" onclick="addIngredientRow()">+ Add</button>
+          </div>
+          <div style="display:grid;grid-template-columns:80px 70px 1fr 1fr 28px;gap:6px;margin-bottom:4px;padding:0 0 4px;">
+            <span style="font-size:10px;color:var(--text3);">Amount</span>
+            <span style="font-size:10px;color:var(--text3);">Unit</span>
+            <span style="font-size:10px;color:var(--text3);">Ingredient</span>
+            <span style="font-size:10px;color:var(--text3);">Notes</span>
+            <span></span>
+          </div>
+          <div id="rf-ingredients"></div>
+
+          <hr />
+          <div class="field"><label>Equipment</label><input type="text" id="rf-equipment" placeholder="large pot, frying pan, mixing bowl (comma-separated)" /></div>
+
+          <hr />
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div class="recipe-section-label" style="margin:0;">Steps</div>
+            <button type="button" class="btn-add" onclick="addStepRow()">+ Add</button>
+          </div>
+          <div id="rf-steps"></div>
+
+          <hr />
+          <div class="recipe-section-label">Source &amp; Notes</div>
+          <div class="field-row">
+            <div class="field"><label>Source type</label>
+              <select id="rf-source-type">
+                <option value="memory">Memory / family</option>
+                <option value="url">Website / URL</option>
+                <option value="instagram">Instagram</option>
+                <option value="book">Book</option>
+                <option value="magazine">Magazine</option>
+                <option value="person">Person</option>
+                <option value="text">Pasted text</option>
+                <option value="photo">Photo scan</option>
+                <option value="ai">AI generated</option>
+                <option value="notion">Notion import</option>
+              </select>
+            </div>
+            <div class="field"><label>Source value</label><input type="text" id="rf-source-value" placeholder="URL, book / magazine title, or name" /></div>
+          </div>
+          <div class="field-row-3">
+            <div class="field"><label>Author</label><input type="text" id="rf-source-author" placeholder="e.g. Yotam Ottolenghi" /></div>
+            <div class="field"><label>Publisher</label><input type="text" id="rf-source-publisher" placeholder="e.g. Ebury Press" /></div>
+            <div class="field"><label>Page</label><input type="text" id="rf-source-page" placeholder="e.g. 142" /></div>
+          </div>
+          <div class="field"><label>Notes &amp; tips</label><textarea id="rf-notes" style="min-height:60px;" placeholder="Things to watch out for, key techniques…"></textarea></div>
+          <div class="field"><label>Variations</label><textarea id="rf-variations" style="min-height:44px;" placeholder="One per line — e.g. Add peas for a kid-friendly version"></textarea></div>
+
+          <hr />
+          <div class="recipe-section-label">Log</div>
+          <div class="field-row-3">
+            <div class="field"><label>Added by</label><select id="rf-entered-by"></select></div>
+            <div class="field"><label>Date added</label><input type="date" id="rf-entered-at" /></div>
+            <div class="field"><label>Rating (1–5)</label><input type="number" id="rf-rating" min="1" max="5" placeholder="—" /></div>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:4px;">
+            <button class="save-btn" style="flex:1;" onclick="saveRecipe()">Save recipe</button>
+            <button class="btn-add" style="flex:0 0 auto;" onclick="closeRecipeForm()">Cancel</button>
+          </div>
+          <div id="recipe-save-status" style="font-size:12px;text-align:center;min-height:18px;margin-top:6px;"></div>
+        </div>
+      </div>
+
+      <!-- Merge view (F8c): compare a pending import against its match -->
+      <div id="recipe-merge-view" style="display:none;"></div>
+    </div>
+
+    <!-- RECIPE LIBRARY (browse / search / view) -->
+    <div class="section" id="section-library">
+      <div class="section-title">Recipe Library</div>
+      <div class="section-desc">Browse, search and filter the family's recipes. Click one to view it; add or change recipes in the <b>Recipe editor</b> (Settings).</div>
+      <div class="lib-filters">
+        <input type="text" id="lib-q" placeholder="Search name, ingredient, tag, equipment…" oninput="renderLibrary()" />
+        <select id="lib-course" onchange="renderLibrary()"></select>
+        <select id="lib-cuisine" onchange="renderLibrary()"></select>
+        <select id="lib-source" onchange="renderLibrary()"></select>
+        <select id="lib-who" onchange="renderLibrary()"></select>
+        <select id="lib-time" onchange="renderLibrary()">
+          <option value="0">Any time</option>
+          <option value="30">≤ 30 min</option>
+          <option value="45">≤ 45 min</option>
+          <option value="60">≤ 60 min</option>
+        </select>
+        <select id="lib-rating" onchange="renderLibrary()">
+          <option value="0">Any rating</option>
+          <option value="3">★★★+</option>
+          <option value="4">★★★★+</option>
+          <option value="5">★★★★★</option>
+        </select>
+        <button class="btn-add" onclick="clearLibraryFilters()">Clear</button>
+      </div>
+      <div class="lib-count" id="lib-count"></div>
+      <div id="lib-results"></div>
+    </div>
+
+    <!-- FAMILY -->
+    <div class="section" id="section-family">
+      <div class="section-title">Colors</div>
+      <div class="section-desc">Names and colors for each family member shown on the calendar.</div>
+      <div class="card" id="members-card"></div>
+    </div>
+
+    <!-- ICONS -->
+    <div class="section" id="section-icons">
+      <div class="section-title">Icons</div>
+      <div class="section-desc">Choose which icons appear in the event and recurring pickers. Click to toggle.</div>
+      <div class="card" id="icons-card"></div>
+    </div>
+
+    <!-- AI -->
+    <div class="section" id="section-ai">
+      <div class="section-title">Meal planning</div>
+      <div class="section-desc">How the assistant plans the week. The weekly prompt drives the first draft; you refine it from the Meals page.</div>
+      <div class="card">
+        <div class="field">
+          <label>AI model — used for all assistant features (planning, recipes, aisle tagging)</label>
+          <select id="ai-model"></select>
+          <div class="section-desc" id="ai-model-note" style="margin:6px 0 0;">$ = cheaper, $$$$ = pricier. Recommended = a good balance of recipe-photo reading, meal planning and cost. Non-Claude models need their provider's key on the server (OPENAI_API_KEY, MISTRAL_API_KEY, or OPENROUTER_API_KEY — one key for the "(OpenRouter)" models).</div>
+        </div>
+        <div class="field">
+          <label>Token usage — last 14 days</label>
+          <div id="ai-usage"></div>
+          <div class="section-desc" id="ai-usage-note" style="margin:6px 0 0;"></div>
+        </div>
+        <div class="field">
+          <label>Family name (shown on display)</label>
+          <input type="text" id="ai-family-name" placeholder="e.g. The Yilmaz Family" />
+        </div>
+        <div class="field">
+          <label>Weekly planning prompt — what the assistant should aim for every week</label>
+          <textarea id="mp-initial" placeholder="e.g. Two fish or vegetarian nights, quick Mon–Thu, a bigger cook at the weekend."></textarea>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Avoid repeating a dish within (weeks)</label>
+            <input type="number" id="mp-recent-weeks" min="0" max="12" />
+          </div>
+          <div class="field">
+            <label>Offer a dish back for variety after (weeks)</label>
+            <input type="number" id="mp-stale-weeks" min="1" max="52" />
+          </div>
+        </div>
+        <div class="section-desc" style="margin:-4px 0 4px;">The planner reads the saved plan history: it won't repeat anything from the last “avoid” weeks, and nudges back favourites not cooked in the last “variety” weeks.</div>
+        <details style="margin-top:6px">
+          <summary style="cursor:pointer;font-size:13px;color:var(--text2);font-weight:500;">Advanced — AI system prompts</summary>
+          <div class="field" style="margin-top:12px">
+            <label>System prompt — initial plan (step 1)</label>
+            <textarea id="mp-generate" rows="9"></textarea>
+          </div>
+          <div class="field">
+            <label>System prompt — refinements (step 2)</label>
+            <textarea id="mp-refine" rows="9"></textarea>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <!-- LOGS -->
+    <!-- MAIL SYNC -->
+    <div class="section" id="section-mailsync">
+      <div class="section-title">Mail sync</div>
+      <div class="section-desc">Bi-directional sync with a mailbox.org alias: invitations emailed to the alias land on this calendar; local events are mirrored to the mailbox.org calendar and invitations are sent to the addresses below. Credentials are configured on the server (.env), not here.</div>
+      <div class="card" id="ms-status-card">
+        <div class="card-title">Status</div>
+        <div id="ms-status" style="font-size:13px;line-height:1.7;color:var(--text2);">Loading…</div>
+        <div class="add-row" style="margin-top:10px;">
+          <button class="btn-add" id="ms-sync-now" onclick="mailsyncRunNow()">↻ Sync now</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Settings <span style="font-weight:400;font-size:12px;color:var(--text3);">(saved with “Save changes”)</span></div>
+        <div class="field"><label style="font-weight:400;"><input type="checkbox" id="ms-enabled" /> Enabled</label></div>
+        <div class="field"><label>Send invitations to (one email per line)</label>
+          <textarea id="ms-invitees" rows="3" placeholder="grandma@example.com" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;"></textarea>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Assign incoming events to</label><select id="ms-who"></select></div>
+        </div>
+        <div class="field"><label style="font-weight:400;"><input type="checkbox" id="ms-autoaccept" /> Auto-accept incoming invitations (reply to the organizer)</label></div>
+        <div class="field"><label style="font-weight:400;"><input type="checkbox" id="ms-sync-events" /> Send invitations for one-off events</label></div>
+        <div class="field"><label style="font-weight:400;"><input type="checkbox" id="ms-sync-recurring" /> Send invitations for recurring activities</label></div>
+      </div>
+    </div>
+
+    <div class="section" id="section-logs">
+      <div class="section-title">Activity log</div>
+      <div class="section-desc">Trace of AI steps, imports, connectivity and errors — including the raw text when the AI returns something unexpected. Newest first.</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+        <select id="log-category" onchange="loadLogs()" style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;">
+          <option value="">All activities</option>
+          <option value="ai">AI step</option>
+          <option value="import">Data import</option>
+          <option value="connectivity">Connectivity</option>
+          <option value="cloud">Cloud relay</option>
+          <option value="data">Data</option>
+          <option value="system">System</option>
+        </select>
+        <select id="log-level" onchange="loadLogs()" style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;">
+          <option value="">Any level</option>
+          <option value="error">Errors</option>
+          <option value="warn">Warnings</option>
+          <option value="info">Info</option>
+        </select>
+        <select id="log-who" onchange="loadLogs()" style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;"><option value="">Anyone</option></select>
+        <input id="log-since" type="date" onchange="loadLogs()" title="Only entries from this date onward" style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;" />
+        <input id="log-q" oninput="logSearchDebounced()" placeholder="Search…" style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;min-width:160px;" />
+        <button class="btn-add" onclick="loadLogs()">↻ Refresh</button>
+        <button class="btn-add" style="margin-left:auto;" onclick="clearLogs()">Clear log</button>
+      </div>
+      <div id="log-list"></div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+const API = window.location.origin;
+// Tag every request with who's driving the admin panel, for the activity log's "who".
+(function () {
+  const _f = window.fetch.bind(window);
+  window.fetch = (u, o = {}) => { o.headers = Object.assign({ 'X-Who': 'owner' }, o.headers || {}); return _f(u, o); };
+})();
+const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const ICON_LIST = ['trash','cake','football','swim','gym','meeting','doctor','school','yoga','travel','bbq','date','star','music','run','beachvolley','pizza','beer','whisky','coffee','cocktail','car','broom'];
+const ICON_EMOJI = {trash:'🗑',cake:'🎂',football:'⚽',swim:'🏊',gym:'🏋',meeting:'💬',doctor:'👨‍⚕️',school:'🎒',yoga:'🧘',travel:'✈️',bbq:'🍖',date:'❤️',star:'⭐',music:'🎵',run:'🏃',beachvolley:'🏐',pizza:'🍕',beer:'🍺',whisky:'🥃',coffee:'☕',cocktail:'🍹',car:'🚗',broom:'🧹'};
+
+let data = {};
+let recipeIndex = [];
+let editingRecipeId = null;
+let pendingPhotoId = null;   // photo extracted via "Scan a photo", attached on the next save
+let photoScanMatch = null;   // top find_similar match for the scanned draft (Compare & merge)
+// Index into the matching data.* array whose inline edit form is open, or null.
+let editingEvent = null, editingBirthday = null, editingRecurring = null;
+let mealWeekStart = getMondayOf(new Date());
+let localMealPlan = {};
+// Days switched to manual (free-text) editing for the current week, by day index.
+let mealEditing = new Set(), mealEditingWk = null;
+
+async function loadData() {
+  try {
+    const [sRes, eRes, mRes, rRes] = await Promise.all([
+      fetch(`${API}/settings`),
+      fetch(`${API}/events`),
+      fetch(`${API}/meals`),
+      fetch(`${API}/recipes`),
+    ]);
+    const settings  = await sRes.json();
+    const evData    = await eRes.json();
+    const mealsData = await mRes.json();
+    settings.eventColors = settings.eventColors || { birthday: '#ffff00', recurring: '#000000' };
+    settings.eventColors.holiday = settings.eventColors.holiday || '#ff0000';
+    settings.eventColors.birthdayText = settings.eventColors.birthdayText || '#000000';
+    settings.eventColors.holidayText = settings.eventColors.holidayText || '#ffffff';
+    settings.display = settings.display || {};
+    if (settings.display.showHolidays === undefined) settings.display.showHolidays = true;
+    data = {
+      settings,
+      events:    evData.events    || [],
+      birthdays: evData.birthdays || [],
+      recurring: evData.recurring || [],
+      recipes:   mealsData.recipes || [],
+      mealPlan:  mealsData.plan    || {},
+    };
+    recipeIndex = await rRes.json();
+    const appName = settings.appName || 'Family Calendar';
+    document.getElementById('page-title').textContent = appName + ' — Admin';
+    document.getElementById('sidebar-app-name').textContent = '🏠 ' + appName;
+    renderAll();
+  } catch(e) {
+    console.error('loadData failed:', e);
+    document.getElementById('save-status').textContent = 'Cannot reach backend: ' + e.message;
+    document.getElementById('save-status').className = 'save-status err';
+  }
+}
+
+// ── Live updates (SSE) ────────────────────────────────────────
+// Relay/mail (and other browser tabs) mutate the events document server-side;
+// mirror those changes here without a manual page refresh. We re-pull only the
+// events document and re-render its lists — settings/meals/recipes edits and the
+// add-form inputs are left untouched, so an incoming event can't clobber
+// in-progress work. The ev-who/rec-who selects are rebuilt by renderEvents(), so
+// we preserve and restore any selection the user had made.
+async function refreshEventsLive() {
+  // Don't yank the lists out from under an open inline edit form — the
+  // re-render would discard unsaved field values and shift indexes. The edit
+  // will re-sync on its own save (or Cancel + the next incoming update).
+  if (editingEvent != null || editingBirthday != null || editingRecurring != null) return;
+  try {
+    const ev = await (await fetch(`${API}/events`)).json();
+    data.events    = ev.events    || [];
+    data.birthdays = ev.birthdays || [];
+    data.recurring = ev.recurring || [];
+    const keep = id => document.getElementById(id)?.value;
+    const restore = (id, v) => { const s = document.getElementById(id);
+      if (s && v != null && [...s.options].some(o => o.value === v)) s.value = v; };
+    const evWho = keep('ev-who'), recWho = keep('rec-who');
+    renderEvents(); renderArchive(); renderBirthdays(); renderRecurring();
+    restore('ev-who', evWho); restore('rec-who', recWho);
+  } catch (e) { /* transient — the stream reconnect will re-sync */ }
+}
+
+function connectStream() {
+  let es;
+  try { es = new EventSource(`${API}/stream`); }
+  catch (e) { return; }
+  es.addEventListener('update', e => {
+    let section = '';
+    try { section = (JSON.parse(e.data) || {}).section; } catch (_) {}
+    if (section === 'events') refreshEventsLive();
+  });
+  es.onerror = () => { es.close(); setTimeout(connectStream, 5000); };
+}
+
+function getMondayOf(d) {
+  const dt = new Date(d);
+  const dow = dt.getDay();
+  dt.setDate(dt.getDate() + (dow === 0 ? -6 : 1 - dow));
+  return dt;
+}
+function fmt(d) { return d.getDate() + ' ' + MONTHS[d.getMonth()]; }
+// Calendar dates are local wall-clock days: toISOString() would shift a
+// local-midnight date back a day in Stockholm (UTC+1/+2), so read the parts.
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function weekKey(d) {
+  const dt = new Date(d); dt.setDate(dt.getDate() + 3);
+  const y = dt.getFullYear();
+  const w = Math.ceil(((dt - new Date(y,0,1)) / 86400000 + 1) / 7);
+  return `${y}-${String(w).padStart(2,'0')}`;
+}
+
+// ── Navigation ────────────────────────────────────────────────
+// ── Activity log ──────────────────────────────────────────────
+const CAT_LABELS = { ai: 'AI step', import: 'Data import', connectivity: 'Connectivity', cloud: 'Cloud relay', data: 'Data', system: 'System' };
+let logMetaLoaded = false, logSearchTimer = null;
+function logSearchDebounced() { clearTimeout(logSearchTimer); logSearchTimer = setTimeout(loadLogs, 300); }
+function toggleLogDetail(head) { const d = head.parentElement.querySelector('.log-detail'); if (d) d.classList.toggle('hidden'); }
+
+async function loadLogMeta() {
+  try {
+    const m = await fetch(`${API}/logs/meta`).then(r => r.json());
+    const sel = document.getElementById('log-who');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">Anyone</option>'
+      + (m.whos || []).map(w => `<option value="${shopEsc(w)}">${shopEsc(entererLabel(w) || w)}</option>`).join('');
+    sel.value = prev;
+  } catch (e) {}
+}
+
+async function loadLogs() {
+  if (!logMetaLoaded) { await loadLogMeta(); logMetaLoaded = true; }
+  const p = new URLSearchParams({
+    category: document.getElementById('log-category').value,
+    level:    document.getElementById('log-level').value,
+    who:      document.getElementById('log-who').value,
+    since:    document.getElementById('log-since').value,
+    q:        document.getElementById('log-q').value.trim(),
+    limit:    300,
+  });
+  const el = document.getElementById('log-list');
+  try {
+    const { entries } = await fetch(`${API}/logs?${p}`).then(r => r.json());
+    if (!entries.length) { el.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:14px 0;">No log entries match.</div>'; return; }
+    el.innerHTML = entries.map(e => {
+      const who = e.who ? (entererLabel(e.who) || e.who) : '—';
+      const detail = e.detail != null ? JSON.stringify(e.detail, null, 2) : '';
+      return `<div class="log-row ${e.level === 'error' ? 'error-row' : ''}">
+        <div class="log-head" onclick="toggleLogDetail(this)">
+          <span class="log-time">${shopEsc(e.ts.replace('T', ' '))}</span>
+          <span class="log-badge ${e.level}">${shopEsc(e.level)}</span>
+          <span class="log-cat">${shopEsc(CAT_LABELS[e.category] || e.category)}</span>
+          <span class="log-msg">${shopEsc(e.message)}</span>
+          <span class="log-who">${shopEsc(who)}</span>
+        </div>
+        ${detail ? `<div class="log-detail hidden">${shopEsc(detail)}</div>` : ''}
+      </div>`;
+    }).join('');
+  } catch (e) { el.innerHTML = '<div style="color:var(--text3);">Could not load logs.</div>'; }
+}
+
+async function clearLogs() {
+  if (!confirm('Clear the entire activity log?')) return;
+  await fetch(`${API}/logs`, { method: 'DELETE' });
+  logMetaLoaded = false;
+  loadLogs();
+}
+
+function showSection(id, el) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('section-' + id).classList.add('active');
+  if (el) el.classList.add('active');
+  if (id === 'mailsync') renderMailSync();
+  if (id === 'meals') renderMealWeek();
+  if (id === 'ai') renderAI();
+  if (id === 'shopping') loadShopping();
+  if (id === 'recipes') { renderRecipes(); loadPending(); }
+  if (id === 'library') openLibrary();
+  if (id === 'logs') loadLogs();
+}
+function gotoAISettings() {
+  const nav = [...document.querySelectorAll('.nav-item')].find(n => /AI settings/.test(n.textContent));
+  showSection('ai', nav);
+}
+
+// ── Render all ────────────────────────────────────────────────
+function renderAll() {
+  renderEvents();
+  renderArchive();
+  renderBirthdays();
+  renderRecurring();
+  renderRecipes();
+  renderMembers();
+  renderIcons();
+  renderAI();
+  renderMailSync();   // populate before any saveAll, so collect can't wipe settings
+  renderIconGrid('ev-icon-grid', 'ev-icon-val', 'eventIcons');
+  renderIconGrid('rec-icon-grid', 'rec-icon-val', 'recurringIcons');
+  renderMealWeek();
+}
+
+// ── Events ────────────────────────────────────────────────────
+// The event list shows today onward; anything dated before today is in the Archive.
+function archiveCutoff() {
+  return isoDate(new Date());
+}
+
+// <option> list for the member/owner dropdowns, with `selectedId` pre-selected.
+function memberOptionsHtml(selectedId) {
+  return (data.settings?.members || []).map(m =>
+    `<option value="${shopEsc(m.id)}"${m.id === selectedId ? ' selected' : ''}>${shopEsc(m.label)}</option>`).join('');
+}
+
+function renderEvents() {
+  const members = data.settings?.members || [];
+  const whoSel = document.getElementById('ev-who');
+  whoSel.innerHTML = members.map(m => `<option value="${shopEsc(m.id)}">${shopEsc(m.label)}</option>`).join('');
+  const recWhoSel = document.getElementById('rec-who');
+  if (recWhoSel) recWhoSel.innerHTML = members.map(m => `<option value="${shopEsc(m.id)}">${shopEsc(m.label)}</option>`).join('');
+
+  const el = document.getElementById('events-list');
+  el.innerHTML = '';
+  const cutoff = archiveCutoff();
+  const evs = (data.events || []).filter(ev => (ev.endDate || ev.date) >= cutoff);
+  const archivedCount = (data.events || []).length - evs.length;
+
+  if (archivedCount > 0) {
+    el.innerHTML = `<div style="font-size:12px;color:var(--text3);margin-bottom:12px;">
+      ${archivedCount} older event${archivedCount > 1 ? 's' : ''} in
+      <a href="#" onclick="showSection('archive', document.querySelector('[onclick*=archive]'));return false;" style="color:var(--accent);">Archive</a>
+    </div>`;
+  }
+
+  if (!evs.length) return;
+  el.innerHTML += '<div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;">Upcoming events</div>';
+  evs.forEach(ev => {
+    const i = data.events.indexOf(ev);
+    if (i === editingEvent) {
+      el.innerHTML += `<div class="list-item" style="flex-direction:column;align-items:stretch;gap:10px;">
+        <div class="field-row">
+          <div class="field"><label>Date</label><input type="date" id="edit-ev-date" value="${shopEsc(ev.date)}" /></div>
+          <div class="field"><label>End date (opt.)</label><input type="date" id="edit-ev-end" value="${shopEsc(ev.endDate || '')}" /></div>
+          <div class="field"><label>Time (opt.)</label><input type="time" id="edit-ev-time" value="${shopEsc(ev.time || '')}" /></div>
+          <div class="field"><label>Person</label><select id="edit-ev-who">${memberOptionsHtml(ev.who)}</select></div>
+        </div>
+        <div class="field"><label>Label</label><input type="text" id="edit-ev-label" value="${shopEsc(ev.label)}" /></div>
+        <div class="field"><label>Icon</label>
+          <div class="icon-grid" id="edit-ev-icon-grid"></div>
+          <input type="hidden" id="edit-ev-icon-val" value="${shopEsc(ev.icon || 'meeting')}" />
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-add" onclick="saveEditEvent(${i})">Save</button>
+          <button class="btn-add" onclick="cancelEditEvent()">Cancel</button>
+        </div>
+      </div>`;
+      return;
+    }
+    const m = members.find(x => x.id === ev.who) || {};
+    el.innerHTML += `<div class="list-item">
+      <span style="background:${m.bg||'#eee'};color:${m.text||'#333'}" class="member-chip">${ICON_EMOJI[ev.icon]||'•'} ${shopEsc(m.label||ev.who)}</span>
+      <div class="list-item-main">
+        <div>${shopEsc(ev.label)}</div>
+        <div class="list-item-sub">${shopEsc(ev.date)}${ev.endDate ? ' → ' + shopEsc(ev.endDate) : ''}${ev.time ? ' · ' + shopEsc(ev.time) : ''}</div>
+      </div>
+      <button class="btn-icon" onclick="editEvent(${i})" title="Edit">✎</button>
+      <button class="btn-icon" onclick="removeEvent(${i})" title="Remove">✕</button>
+    </div>`;
+  });
+  // The inline icon picker exists only after the row above is in the DOM.
+  if (editingEvent != null) renderIconGrid('edit-ev-icon-grid', 'edit-ev-icon-val', 'eventIcons');
+}
+
+function renderArchive() {
+  const el = document.getElementById('archive-list');
+  if (!el) return;
+  el.innerHTML = '';
+  const cutoff = archiveCutoff();
+  const evs = (data.events || [])
+    .map((ev, i) => ({ ...ev, _i: i }))
+    .filter(ev => (ev.endDate || ev.date) < cutoff)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  if (!evs.length) {
+    el.innerHTML = '<div style="color:var(--text3);font-size:13px;">No archived events.</div>';
+    return;
+  }
+  evs.forEach(ev => {
+    const m = (data.settings?.members || []).find(x => x.id === ev.who) || {};
+    el.innerHTML += `<div class="list-item">
+      <span style="background:${m.bg||'#eee'};color:${m.text||'#333'}" class="member-chip">${ICON_EMOJI[ev.icon]||'•'} ${shopEsc(m.label||ev.who)}</span>
+      <div class="list-item-main">
+        <div>${shopEsc(ev.label)}</div>
+        <div class="list-item-sub">${shopEsc(ev.date)}</div>
+      </div>
+      <button class="btn-icon" onclick="removeEvent(${ev._i})">✕</button>
+    </div>`;
+  });
+}
+// Persist the events document (events + birthdays + recurring) immediately.
+// Called after every add/remove so these lists don't need the global "Save changes".
+async function saveEvents(msg) {
+  try {
+    await fetch(`${API}/events`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ events: data.events || [], birthdays: data.birthdays || [], recurring: data.recurring || [] }),
+    });
+    setStatus(msg || 'Saved ✓', 'ok');
+  } catch(e) { setStatus('Save failed — backend unreachable', 'err'); }
+}
+
+function addEvent() {
+  const date = document.getElementById('ev-date').value;
+  const end = document.getElementById('ev-end').value;
+  const time = document.getElementById('ev-time').value;
+  const who = document.getElementById('ev-who').value;
+  const label = document.getElementById('ev-label').value.trim();
+  const icon = document.getElementById('ev-icon-val').value;
+  if (!date || !label) return;
+  data.events = data.events || [];
+  const ev = { date, who, icon, label };
+  if (time) ev.time = time;
+  if (end && end > date) ev.endDate = end;
+  data.events.push(ev);
+  data.events.sort((a,b) => a.date.localeCompare(b.date));
+  renderEvents();
+  document.getElementById('ev-label').value = '';
+  document.getElementById('ev-time').value = '';
+  document.getElementById('ev-end').value = '';
+  saveEvents('Event added ✓');
+}
+function removeEvent(i) { data.events.splice(i, 1); renderEvents(); saveEvents('Event removed'); }
+
+// ── Inline event editing ──────────────────────────────────────
+function editEvent(i) { editingEvent = i; renderEvents(); }
+function cancelEditEvent() { editingEvent = null; renderEvents(); }
+function saveEditEvent(i) {
+  const g = id => document.getElementById(id);
+  const date  = g('edit-ev-date').value;
+  const label = g('edit-ev-label').value.trim();
+  if (!date || !label) return;   // date + label are required, same as Add
+  const end  = g('edit-ev-end').value;
+  const time = g('edit-ev-time').value;
+  const who  = g('edit-ev-who').value;
+  const icon = g('edit-ev-icon-val').value;
+  // Preserve any fields we don't edit here (id, endDate semantics, etc.).
+  const updated = { ...data.events[i], date, who, icon, label };
+  if (time) updated.time = time; else delete updated.time;
+  if (end && end > date) updated.endDate = end; else delete updated.endDate;
+  data.events[i] = updated;
+  data.events.sort((a, b) => a.date.localeCompare(b.date));
+  editingEvent = null;
+  renderEvents();
+  saveEvents('Event updated ✓');
+}
+
+// ── Birthdays ─────────────────────────────────────────────────
+function renderBirthdays() {
+  const el = document.getElementById('birthdays-list');
+  el.innerHTML = '';
+  const bds = data.birthdays || [];
+  if (!bds.length) return;
+  el.innerHTML = '<div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;">Birthdays</div>';
+  bds.map((b, i) => ({ ...b, _i: i }))
+    .sort((a, b) => a.month !== b.month ? a.month - b.month : a.day - b.day)
+    .forEach(b => {
+      if (b._i === editingBirthday) {
+        el.innerHTML += `<div class="list-item" style="flex-direction:column;align-items:stretch;gap:10px;">
+          <div class="add-row" style="flex-wrap:wrap;">
+            <input id="edit-bd-name" value="${shopEsc(b.name)}" placeholder="Name" />
+            <input id="edit-bd-month" type="number" min="1" max="12" value="${b.month}" placeholder="Month" style="max-width:80px" />
+            <input id="edit-bd-day" type="number" min="1" max="31" value="${b.day}" placeholder="Day" style="max-width:70px" />
+            <input id="edit-bd-year" type="number" min="1900" max="2100" value="${b.year != null ? b.year : ''}" placeholder="Year (opt.)" style="max-width:100px" />
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn-add" onclick="saveEditBirthday(${b._i})">Save</button>
+            <button class="btn-add" onclick="cancelEditBirthday()">Cancel</button>
+          </div>
+        </div>`;
+        return;
+      }
+      el.innerHTML += `<div class="list-item">
+        <span>🎂</span>
+        <div class="list-item-main">
+          <div>${shopEsc(b.name)}</div>
+          <div class="list-item-sub">Every year — ${MONTH_NAMES[b.month-1]} ${b.day}${b.year ? ` · born ${b.year}` : ''}</div>
+        </div>
+        <button class="btn-icon" onclick="editBirthday(${b._i})" title="Edit">✎</button>
+        <button class="btn-icon" onclick="removeBirthday(${b._i})" title="Remove">✕</button>
+      </div>`;
+    });
+}
+function editBirthday(i) { editingBirthday = i; renderBirthdays(); }
+function cancelEditBirthday() { editingBirthday = null; renderBirthdays(); }
+function saveEditBirthday(i) {
+  const g = id => document.getElementById(id);
+  const name = g('edit-bd-name').value.trim();
+  const month = parseInt(g('edit-bd-month').value);
+  const day = parseInt(g('edit-bd-day').value);
+  const year = parseInt(g('edit-bd-year').value);
+  if (!name || !month || !day) return;
+  const updated = { ...data.birthdays[i], name, month, day };
+  if (year >= 1900 && year <= 2100) updated.year = year; else delete updated.year;
+  data.birthdays[i] = updated;
+  editingBirthday = null;
+  renderBirthdays();
+  saveEvents('Birthday updated ✓');
+}
+function addBirthday() {
+  const name = document.getElementById('bd-name').value.trim();
+  const month = parseInt(document.getElementById('bd-month').value);
+  const day = parseInt(document.getElementById('bd-day').value);
+  const year = parseInt(document.getElementById('bd-year').value);
+  if (!name || !month || !day) return;
+  data.birthdays = data.birthdays || [];
+  const bd = { name, month, day };
+  if (year >= 1900 && year <= 2100) bd.year = year;
+  data.birthdays.push(bd);
+  renderBirthdays();
+  ['bd-name','bd-month','bd-day','bd-year'].forEach(id => document.getElementById(id).value = '');
+  saveEvents('Birthday added ✓');
+}
+function removeBirthday(i) { data.birthdays.splice(i, 1); renderBirthdays(); saveEvents('Birthday removed'); }
+
+// ── Recurring ─────────────────────────────────────────────────
+function schedText(r) {
+  const DOW = {MO:'Mon',TU:'Tue',WE:'Wed',TH:'Thu',FR:'Fri',SA:'Sat',SU:'Sun'};
+  let s;
+  if (r.freq === 'weekly') {
+    const days = (r.byday || []).map(d => DOW[d] || d).join(', ');
+    s = (r.interval > 1 ? `Every ${r.interval} weeks` : 'Weekly') + (days ? ` on ${days}` : '');
+  } else if (r.freq === 'daily') {
+    s = r.interval > 1 ? `Every ${r.interval} days` : 'Daily';
+  } else {
+    s = `Every ${r.step} day${r.step > 1 ? 's' : ''}`;
+  }
+  s += ` from ${r.startDate}`;
+  if (r.until) s += ` until ${r.until}`;
+  if (r.time) s += ` · ${r.time}`;
+  return s;
+}
+function renderRecurring() {
+  const el = document.getElementById('recurring-list');
+  el.innerHTML = '';
+  const members = data.settings?.members || [];
+  const DOW_CODES = ['MO','TU','WE','TH','FR','SA','SU'];
+  const DOW_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  (data.recurring || []).forEach((r, i) => {
+    if (i === editingRecurring) {
+      const freq = r.freq === 'weekly' ? 'weekly' : 'days';
+      const interval = freq === 'weekly' ? (r.interval || 1) : (r.step || 1);
+      const bydayBoxes = DOW_CODES.map((d, idx) =>
+        `<label style="font-weight:400;"><input type="checkbox" value="${d}"${(r.byday || []).includes(d) ? ' checked' : ''} /> ${DOW_NAMES[idx]}</label>`).join('');
+      el.innerHTML += `<div class="list-item" style="flex-direction:column;align-items:stretch;gap:10px;">
+        <div class="field-row">
+          <div class="field"><label>Label</label><input type="text" id="edit-rec-label" value="${shopEsc(r.label)}" /></div>
+          <div class="field"><label>Start date</label><input type="date" id="edit-rec-start" value="${shopEsc(r.startDate || '')}" /></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Repeats</label>
+            <select id="edit-rec-freq" onchange="document.getElementById('edit-rec-byday-wrap').style.display = this.value === 'weekly' ? '' : 'none'">
+              <option value="days"${freq === 'days' ? ' selected' : ''}>Every N days</option>
+              <option value="weekly"${freq === 'weekly' ? ' selected' : ''}>Weekly</option>
+            </select>
+          </div>
+          <div class="field"><label>Interval (days / weeks)</label><input type="number" id="edit-rec-interval" min="1" value="${interval}" /></div>
+          <div class="field"><label>Owner</label><select id="edit-rec-who">${memberOptionsHtml(r.who || 'family')}</select></div>
+        </div>
+        <div class="field" id="edit-rec-byday-wrap" style="display:${freq === 'weekly' ? '' : 'none'};">
+          <label>On weekdays</label>
+          <div id="edit-rec-byday" style="display:flex;gap:10px;flex-wrap:wrap;padding:4px 0;">${bydayBoxes}</div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Until (opt.)</label><input type="date" id="edit-rec-until" value="${shopEsc(r.until || '')}" /></div>
+          <div class="field"><label>Time (opt.)</label><input type="time" id="edit-rec-time" value="${shopEsc(r.time || '')}" /></div>
+        </div>
+        <div class="field"><label>Icon</label>
+          <div class="icon-grid" id="edit-rec-icon-grid"></div>
+          <input type="hidden" id="edit-rec-icon-val" value="${shopEsc(r.icon || 'trash')}" />
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-add" onclick="saveEditRecurring(${i})">Save</button>
+          <button class="btn-add" onclick="cancelEditRecurring()">Cancel</button>
+        </div>
+      </div>`;
+      return;
+    }
+    const owner = members.find(m => m.id === (r.who || 'family')) || {};
+    const chip = owner.label
+      ? `<span style="background:${owner.bg||'#000'};color:${owner.text||'#fff'};padding:1px 6px;border-radius:4px;font-size:11px;">${shopEsc(owner.label)}</span>`
+      : '';
+    el.innerHTML += `<div class="list-item">
+      <span>${ICON_EMOJI[r.icon]||'🔄'}</span>
+      <div class="list-item-main">
+        <div>${shopEsc(r.label)} ${chip}</div>
+        <div class="list-item-sub">${shopEsc(schedText(r))}</div>
+      </div>
+      <button class="btn-icon" onclick="editRecurring(${i})" title="Edit">✎</button>
+      <button class="btn-icon" onclick="removeRecurring(${i})" title="Remove">✕</button>
+    </div>`;
+  });
+  // The inline icon picker exists only after the row above is in the DOM.
+  if (editingRecurring != null) renderIconGrid('edit-rec-icon-grid', 'edit-rec-icon-val', 'recurringIcons');
+}
+function editRecurring(i) { editingRecurring = i; renderRecurring(); }
+function cancelEditRecurring() { editingRecurring = null; renderRecurring(); }
+function saveEditRecurring(i) {
+  const g = id => document.getElementById(id);
+  const label = g('edit-rec-label').value.trim();
+  const startDate = g('edit-rec-start').value;
+  const freq = g('edit-rec-freq').value;
+  const interval = parseInt(g('edit-rec-interval').value) || 0;
+  const until = g('edit-rec-until').value;
+  const time = g('edit-rec-time').value;
+  const icon = g('edit-rec-icon-val').value;
+  const who = g('edit-rec-who').value;
+  if (!label || !startDate || interval < 1) return;
+  // Rebuild the schedule shape from scratch so stale keys from the previous
+  // frequency (step vs. freq/interval/byday) don't linger.
+  const item = { ...data.recurring[i], label, icon, startDate, who, iconOnly: true };
+  delete item.freq; delete item.interval; delete item.byday; delete item.step;
+  if (freq === 'weekly') {
+    item.freq = 'weekly';
+    item.interval = interval;
+    const byday = Array.from(document.querySelectorAll('#edit-rec-byday input:checked')).map(c => c.value);
+    if (byday.length) item.byday = byday;
+  } else {
+    item.step = interval;   // legacy shape: every N days
+  }
+  if (until && until >= startDate) item.until = until; else delete item.until;
+  if (time) item.time = time; else delete item.time;
+  data.recurring[i] = item;
+  editingRecurring = null;
+  renderRecurring();
+  saveEvents('Recurring activity updated ✓');
+}
+function addRecurring() {
+  const label = document.getElementById('rec-label').value.trim();
+  const startDate = document.getElementById('rec-start').value;
+  const freq = document.getElementById('rec-freq').value;
+  const interval = parseInt(document.getElementById('rec-interval').value) || 0;
+  const until = document.getElementById('rec-until').value;
+  const time = document.getElementById('rec-time').value;
+  const icon = document.getElementById('rec-icon-val').value;
+  const who = document.getElementById('rec-who').value;
+  if (!label || !startDate || interval < 1) return;
+  const item = { label, icon, startDate, who, iconOnly: true };
+  if (freq === 'weekly') {
+    item.freq = 'weekly';
+    item.interval = interval;
+    const byday = Array.from(document.querySelectorAll('#rec-byday input:checked')).map(c => c.value);
+    if (byday.length) item.byday = byday;
+  } else {
+    item.step = interval;   // legacy shape: every N days
+  }
+  if (until && until >= startDate) item.until = until;
+  if (time) item.time = time;
+  data.recurring = data.recurring || [];
+  data.recurring.push(item);
+  renderRecurring();
+  document.getElementById('rec-label').value = '';
+  document.getElementById('rec-until').value = '';
+  document.getElementById('rec-time').value = '';
+  document.querySelectorAll('#rec-byday input:checked').forEach(c => c.checked = false);
+  saveEvents('Recurring activity added ✓');
+}
+function removeRecurring(i) { data.recurring.splice(i, 1); renderRecurring(); saveEvents('Recurring removed'); }
+
+// ── Recipes ───────────────────────────────────────────────────
+// Recipe attribution is a fixed set (not the calendar members) — who entered
+// it, limited to the two adult roles ('owner', 'spouse'), plus Unknown.
+const RECIPE_ENTERER_IDS = ['owner', 'spouse'];
+function recipeEnterers() {
+  const list = (data.settings?.members || []).filter(m => RECIPE_ENTERER_IDS.includes(m.id)).map(m => ({ id: m.id, label: m.label }));
+  list.push({ id: 'unknown', label: 'Unknown' });
+  return list;
+}
+const entererLabel = id => id === 'unknown' ? 'Unknown' : ((data.settings?.members || []).find(m => m.id === id)?.label || '');
+const entererOptions = () => recipeEnterers().map(e => `<option value="${shopEsc(e.id)}">${shopEsc(e.label)}</option>`).join('');
+
+function renderRecipes() {
+  const el = document.getElementById('recipes-grid');
+  if (!el) return;
+  // Keep the "imports added by" picker populated with the fixed enterer set.
+  const whoSel = document.getElementById('import-who');
+  if (whoSel) {
+    const prev = whoSel.value || 'owner';
+    whoSel.innerHTML = entererOptions();
+    whoSel.value = recipeEnterers().some(e => e.id === prev) ? prev : 'owner';
+  }
+  // Keep the "added by" filter populated (with an "Anyone" option).
+  const whoFilter = document.getElementById('filter-who');
+  if (whoFilter) {
+    const prev = whoFilter.value;
+    whoFilter.innerHTML = '<option value="">Anyone</option>' + entererOptions();
+    whoFilter.value = prev;
+  }
+  renderReviewBanner();   // first: it clears reviewOnly when nothing is flagged
+  const fSource = document.getElementById('filter-source')?.value || '';
+  const fWho    = whoFilter?.value || '';
+  const fCourse = document.getElementById('filter-course')?.value || '';
+  const courseOf = r => RECIPE_COURSES.includes(r.course) ? r.course : 'other';
+  const list = recipeIndex.filter(r =>
+    (!fSource || r.source_type === fSource) && (!fWho || r.entered_by === fWho)
+    && (!fCourse || courseOf(r) === fCourse) && (!reviewOnly || r.needs_review));
+  const countEl = document.getElementById('recipe-count');
+  if (countEl) countEl.textContent = (fSource || fWho || fCourse)
+    ? `${list.length} of ${recipeIndex.length} recipes` : `${recipeIndex.length} recipes`;
+  el.innerHTML = '';
+  if (!recipeIndex.length) {
+    el.innerHTML = '<div style="color:var(--text3);font-size:13px;">No recipes yet — add your first!</div>';
+    return;
+  }
+  if (!list.length) {
+    el.innerHTML = '<div style="color:var(--text3);font-size:13px;">No recipes match this filter.</div>';
+    return;
+  }
+  // Group under course headings in canonical order (F4).
+  const byCourse = {};
+  list.forEach(r => { (byCourse[courseOf(r)] = byCourse[courseOf(r)] || []).push(r); });
+  let html = '';
+  RECIPE_COURSES.forEach(c => {
+    const group = byCourse[c];
+    if (!group || !group.length) return;
+    html += `<div class="course-heading">${shopEsc(COURSE_LABELS[c] || c)} <span>${group.length}</span></div>`;
+    group.forEach(r => { html += recipeCardHTML(r); });
+  });
+  el.innerHTML = html;
+}
+
+// Unreviewed phone scans (relay photo commands): banner + amber card highlight,
+// mirroring the Pending-imports treatment. Saving a recipe clears its flag.
+let reviewOnly = false;
+function toggleReviewOnly() { reviewOnly = !reviewOnly; renderRecipes(); }
+function renderReviewBanner() {
+  const banner = document.getElementById('review-banner');
+  if (!banner) return;
+  const n = recipeIndex.filter(r => r.needs_review).length;
+  if (!n) { banner.style.display = 'none'; banner.innerHTML = ''; if (reviewOnly) { reviewOnly = false; } return; }
+  banner.style.display = 'block';
+  banner.innerHTML = `<div style="padding:10px 14px;border:1px solid #e6a817;background:#fdf6e3;border-radius:var(--radius-sm);display:flex;align-items:center;gap:10px;">
+    <div style="flex:1;"><div style="font-weight:600;">Review needed (${n})</div>
+    <div style="font-size:12px;color:var(--text2);">Scanned from a phone and saved by AI — open each and save to confirm.</div></div>
+    <button class="btn-add" onclick="toggleReviewOnly()">${reviewOnly ? 'Show all' : 'Show only these'}</button>
+  </div>`;
+}
+
+function recipeCardHTML(r) {
+  const totalMin = (r.prep_time_min || 0) + (r.cook_time_min || 0);
+  const stars = r.rating ? '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating) : '';
+  const tagStr = (r.tags || []).slice(0, 3).join(', ');
+  const enteredBy = entererLabel(r.entered_by);
+  return `<div class="recipe-card${r.needs_review ? ' needs-review' : ''}" onclick="openRecipeForm('${r.id}')">
+      <div class="recipe-card-name">${shopEsc(r.name)}</div>
+      <div class="recipe-card-meta">
+        ${r.needs_review ? `<span class="tag-pill" style="background:#fdf6e3;border:1px solid #e6a817;color:#8a6510;font-weight:600;">Review needed</span>` : ''}
+        ${r.cuisine ? `<span class="tag-pill">${shopEsc(r.cuisine)}</span>` : ''}
+        ${totalMin ? `<span class="tag-pill">⏱ ${totalMin} min</span>` : ''}
+        ${r.difficulty ? `<span class="tag-pill">${'●'.repeat(r.difficulty)}${'○'.repeat(5 - r.difficulty)}</span>` : ''}
+        ${stars ? `<span class="tag-pill">${stars}</span>` : ''}
+        ${r.source_type ? `<span class="tag-pill" title="Filter by this source" style="cursor:pointer;" onclick="event.stopPropagation();document.getElementById('filter-source').value='${shopEsc(r.source_type)}';renderRecipes()">${shopEsc(SOURCE_LABELS[r.source_type] || r.source_type)}</span>` : ''}
+      </div>
+      ${tagStr ? `<div style="font-size:11px;color:var(--text3);margin-top:5px;">${shopEsc(tagStr)}</div>` : ''}
+      ${enteredBy ? `<div style="font-size:10px;color:var(--text3);margin-top:4px;">by ${shopEsc(enteredBy)} · ${shopEsc(r.entered_at||'')}</div>` : ''}
+      <button class="btn-icon" style="position:absolute;top:8px;right:8px;"
+        onclick="event.stopPropagation();deleteRecipe('${r.id}')">✕</button>
+    </div>`;
+}
+
+async function classifyCourses() {
+  const btn = document.getElementById('classify-courses-btn');
+  const st  = document.getElementById('classify-courses-status');
+  btn.disabled = true; st.textContent = '⏳ Classifying…'; st.style.color = 'var(--text2)';
+  try {
+    const res = await fetch(`${API}/recipes/classify-courses`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const json = await res.json();
+    st.textContent = `Classified ${json.count} recipe(s) ✓`; st.style.color = 'var(--success)';
+    recipeIndex = await (await fetch(`${API}/recipes`)).json();
+    renderRecipes();
+    setTimeout(() => { st.textContent = ''; }, 3000);
+  } catch (e) {
+    st.textContent = 'Failed'; st.style.color = 'var(--danger)';
+  }
+  btn.disabled = false;
+}
+
+// ── Recipe Library (browse / search / view) ──────────────────────────────────
+function fold(s) { return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ı/g, 'i').toLowerCase(); }
+function libCourseOf(r) { return RECIPE_COURSES.includes(r.course) ? r.course : 'other'; }
+
+function libraryFilterOptions() {
+  const idx = recipeIndex || [];
+  const opt = (v, l) => `<option value="${shopEsc(v)}">${shopEsc(l)}</option>`;
+  document.getElementById('lib-course').innerHTML = opt('', 'All courses') +
+    RECIPE_COURSES.filter(c => idx.some(r => libCourseOf(r) === c)).map(c => opt(c, COURSE_LABELS[c])).join('');
+  const cuis = [...new Set(idx.map(r => r.cuisine).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  document.getElementById('lib-cuisine').innerHTML = opt('', 'All cuisines') + cuis.map(c => opt(c, c)).join('');
+  const srcs = [...new Set(idx.map(r => r.source_type).filter(Boolean))].sort();
+  document.getElementById('lib-source').innerHTML = opt('', 'All sources') +
+    srcs.map(s => opt(s, SOURCE_LABELS[s] || s)).join('');
+  const whos = [...new Set(idx.map(r => r.entered_by).filter(Boolean))].sort();
+  document.getElementById('lib-who').innerHTML = '<option value="">Anyone</option>' +
+    whos.map(w => opt(w, entererLabel(w) || w)).join('');
+}
+
+function openLibrary() { libraryFilterOptions(); renderLibrary(); }
+
+function clearLibraryFilters() {
+  document.getElementById('lib-q').value = '';
+  ['lib-course', 'lib-cuisine', 'lib-source', 'lib-who'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('lib-time').value = '0';
+  document.getElementById('lib-rating').value = '0';
+  renderLibrary();
+}
+
+function renderLibrary() {
+  const idx = recipeIndex || [];
+  const q       = fold(document.getElementById('lib-q').value.trim());
+  const course  = document.getElementById('lib-course').value;
+  const cuisine = document.getElementById('lib-cuisine').value;
+  const source  = document.getElementById('lib-source').value;
+  const who     = document.getElementById('lib-who').value;
+  const maxT    = parseInt(document.getElementById('lib-time').value, 10) || 0;
+  const minR    = parseInt(document.getElementById('lib-rating').value, 10) || 0;
+  const list = idx.filter(r => {
+    if (course && libCourseOf(r) !== course) return false;
+    if (cuisine && r.cuisine !== cuisine) return false;
+    if (source && r.source_type !== source) return false;
+    if (who && r.entered_by !== who) return false;
+    if (maxT && (r.total_time_min || 0) > maxT) return false;
+    if (minR && (r.rating || 0) < minR) return false;
+    if (q) { const hay = fold([r.name, (r.tags||[]).join(' '), (r.ingredients||[]).join(' '), (r.equipment||[]).join(' ')].join(' ')); if (!hay.includes(q)) return false; }
+    return true;
+  });
+  document.getElementById('lib-count').textContent = `${list.length} of ${idx.length} recipe${idx.length === 1 ? '' : 's'}`;
+  const byC = {};
+  list.forEach(r => { (byC[libCourseOf(r)] = byC[libCourseOf(r)] || []).push(r); });
+  let html = '';
+  RECIPE_COURSES.forEach(c => {
+    const g = byC[c];
+    if (!g || !g.length) return;
+    g.sort((a, b) => a.name.localeCompare(b.name));
+    html += `<div class="lib-course-h">${shopEsc(COURSE_LABELS[c])} <span>${g.length}</span></div>`;
+    g.forEach(r => {
+      const t = r.total_time_min || 0;
+      const stars = r.rating ? '★'.repeat(r.rating) : '';
+      const dots = r.difficulty ? '●'.repeat(r.difficulty) + '○'.repeat(5 - r.difficulty) : '';
+      html += `<div class="lib-row" onclick="openRecipeFromPlan('${shopEsc(r.id)}')">
+        <span class="lib-nm">${shopEsc(r.name)}</span>
+        <span class="lib-meta">
+          ${r.cuisine ? `<span class="tag-pill">${shopEsc(r.cuisine)}</span>` : ''}
+          ${t ? `<span class="tag-pill">⏱ ${t} min</span>` : ''}
+          ${dots ? `<span class="tag-pill" title="Difficulty ${r.difficulty}/5">${dots}</span>` : ''}
+          ${stars ? `<span class="lib-stars">${stars}</span>` : ''}
+        </span></div>`;
+    });
+  });
+  document.getElementById('lib-results').innerHTML = html ||
+    (idx.length ? '<div style="color:var(--text3);font-size:13px;">No recipes match these filters.</div>'
+                : '<div style="color:var(--text3);font-size:13px;">No recipes yet — add one in the Recipe editor.</div>');
+}
+
+// ── Pending imports + side-by-side merge (F8c) ────────────────────────────────
+// Fixed row order; `content` rows default to take-new (restore original language),
+// taxonomy/meta default to keep-existing.
+const MERGE_ROWS = [
+  { key: 'name', label: 'Name', content: true },
+  { key: 'description', label: 'Description', content: true },
+  { key: 'ingredients', label: 'Ingredients', content: true, fmt: 'ings' },
+  { key: 'steps', label: 'Steps', content: true, fmt: 'steps' },
+  { key: 'notes', label: 'Notes', content: true },
+  { key: 'variations', label: 'Variations', content: true, fmt: 'lines' },
+  { key: 'servings', label: 'Servings' },
+  { key: 'time', label: 'Prep/Cook/Inactive', fmt: 'time' },
+  { key: 'cuisine', label: 'Cuisine' },
+  { key: 'course', label: 'Course', fmt: 'course' },
+  { key: 'tags', label: 'Tags', fmt: 'csv' },
+  { key: 'meal_type', label: 'Meal type', fmt: 'csv' },
+  { key: 'dietary', label: 'Dietary', fmt: 'csv' },
+  { key: 'source', label: 'Source', fmt: 'source' },
+];
+let mergeChoice = {}, carryMergeChoices = null;
+
+function mergeFmt(r, row) {
+  const v = k => r ? r[k] : undefined;
+  if (row.fmt === 'ings') return (v('ingredients') || []).map(i =>
+    `${[i.amount, i.unit].filter(Boolean).join(' ')} ${i.item || ''}${i.notes ? ` (${i.notes})` : ''}`.trim()).join('\n');
+  if (row.fmt === 'steps') return (v('steps') || []).map((s, i) => `${i + 1}. ${s.text || ''}`).join('\n');
+  if (row.fmt === 'lines') return (v('variations') || []).join('\n');
+  if (row.fmt === 'csv') return (v(row.key) || []).join(', ');
+  if (row.fmt === 'time') return `${v('prep_time_min') || 0} / ${v('cook_time_min') || 0} / ${v('inactive_time_min') || 0} min`;
+  if (row.fmt === 'course') return COURSE_LABELS[v('course')] || v('course') || '';
+  if (row.fmt === 'source') { const s = v('source') || {}; return [s.type, s.value].filter(Boolean).join(': '); }
+  return v(row.key) == null ? '' : String(v(row.key));
+}
+
+async function loadPending() {
+  const banner = document.getElementById('pending-banner');
+  if (!banner) return;
+  let rows = [];
+  try { rows = await (await fetch(`${API}/recipes/pending`)).json(); } catch (e) { return; }
+  if (!rows.length) { banner.style.display = 'none'; banner.innerHTML = ''; return; }
+  banner.style.display = 'block';
+  banner.innerHTML = `<div style="padding:10px 14px;border:1px solid var(--accent);background:var(--accent-bg);border-radius:var(--radius-sm);">
+    <div style="font-weight:600;">Pending imports (${rows.length})</div>
+    <div style="font-size:12px;color:var(--text2);margin:2px 0 4px;">Each matches an existing recipe — compare &amp; merge instead of duplicating.</div>
+    ${rows.map(r => `<div class="pending-item">
+      <span class="pi-name">${shopEsc(r.name || '(untitled)')}</span>
+      <span class="pi-match">↔ ${shopEsc(r.matchName || r.matchId)}</span>
+      <button class="btn-add" onclick="openMerge('${shopEsc(r.pendingId)}')">Compare</button>
+    </div>`).join('')}
+  </div>`;
+}
+
+async function openMerge(pid) {
+  const view = document.getElementById('recipe-merge-view');
+  document.getElementById('recipe-list-view').style.display = 'none';
+  document.getElementById('recipe-form-view').style.display = 'none';
+  view.style.display = 'block';
+  view.innerHTML = '<div style="color:var(--text3);font-size:13px;">Loading…</div>';
+  let draft, existing;
+  try {
+    draft = await (await fetch(`${API}/recipes/pending/${encodeURIComponent(pid)}`)).json();
+    existing = await (await fetch(`${API}/recipes/${encodeURIComponent(draft.matchId)}`)).json();
+  } catch (e) { view.innerHTML = '<div style="color:var(--danger);">Could not load this pending import.</div>'; return; }
+
+  mergeChoice = {};
+  MERGE_ROWS.forEach(row => {
+    const same = mergeFmt(existing, row).trim() === mergeFmt(draft, row).trim();
+    mergeChoice[row.key] = same ? 'same'
+      : (carryMergeChoices && carryMergeChoices[row.key] && carryMergeChoices[row.key] !== 'same')
+        ? carryMergeChoices[row.key] : (row.content ? 'new' : 'existing');
+  });
+
+  view.dataset.pid = pid;
+  view.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;">
+      <div class="card-title">Compare &amp; merge</div>
+      <span style="font-size:13px;color:var(--text2);">into <b>${shopEsc(existing.name || draft.matchId)}</b></span>
+      <button class="btn-add" style="margin-left:auto;" onclick="closeMerge()">Cancel</button>
+    </div>
+    <div class="section-desc" style="margin-bottom:10px;">Tap a column to choose it per field. Content defaults to the new import (restores original language); taxonomy keeps the existing values.</div>
+    <div id="merge-rows"></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:14px 0;cursor:pointer;">
+      <input type="checkbox" id="merge-carry" style="width:auto;" ${carryMergeChoices ? 'checked' : ''}/> Use the same choices for the next pending item
+    </label>
+    <div style="display:flex;gap:10px;">
+      <button class="save-btn" style="flex:1;" onclick="applyMerge()">Apply merge</button>
+      <button class="btn-add" onclick="saveAsNew()">Save as new</button>
+      <button class="btn-add" style="color:var(--danger);" onclick="discardPending()">Discard</button>
+    </div>
+    <div id="merge-status" style="font-size:12px;text-align:center;min-height:18px;margin-top:8px;"></div>`;
+  window._mergeData = { draft, existing };
+  renderMergeRows();
+}
+
+function renderMergeRows() {
+  const { draft, existing } = window._mergeData;
+  const host = document.getElementById('merge-rows');
+  host.innerHTML = MERGE_ROWS.map(row => {
+    const ev = mergeFmt(existing, row), dv = mergeFmt(draft, row);
+    if (mergeChoice[row.key] === 'same') {
+      return `<div class="merge-row identical"><div class="merge-lbl">${row.label}</div>
+        <div class="merge-col" style="grid-column:2 / 4;cursor:default;">${shopEsc(ev) || '—'} <span class="mc-tag">identical</span></div></div>`;
+    }
+    const pick = mergeChoice[row.key];
+    return `<div class="merge-row"><div class="merge-lbl">${row.label}</div>
+      <div class="merge-col${pick === 'existing' ? ' chosen' : ''}" onclick="pickMerge('${row.key}','existing')"><span class="mc-tag">Keep existing</span>${shopEsc(ev) || '—'}</div>
+      <div class="merge-col${pick === 'new' ? ' chosen' : ''}" onclick="pickMerge('${row.key}','new')"><span class="mc-tag">Take new</span>${shopEsc(dv) || '—'}</div></div>`;
+  }).join('');
+}
+
+function pickMerge(key, which) { mergeChoice[key] = which; renderMergeRows(); }
+function closeMerge() {
+  document.getElementById('recipe-merge-view').style.display = 'none';
+  document.getElementById('recipe-list-view').style.display = 'block';
+}
+
+function _carrySnapshot() {
+  document.getElementById('merge-carry')?.checked
+    ? (carryMergeChoices = { ...mergeChoice }) : (carryMergeChoices = null);
+}
+
+async function _resolvePending(payload) {
+  const view = document.getElementById('recipe-merge-view');
+  const pid = view.dataset.pid;
+  const st = document.getElementById('merge-status');
+  st.textContent = 'Working…'; st.style.color = 'var(--text2)';
+  try {
+    const r = await fetch(`${API}/recipes/pending/${encodeURIComponent(pid)}/resolve`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error(await r.text());
+    _carrySnapshot();
+    recipeIndex = await (await fetch(`${API}/recipes`)).json();
+    closeMerge(); renderRecipes(); loadPending();
+  } catch (e) { st.textContent = 'Failed: ' + e.message; st.style.color = 'var(--danger)'; }
+}
+
+function applyMerge() {
+  const fields = MERGE_ROWS.filter(row => mergeChoice[row.key] === 'new').map(row => row.key);
+  _resolvePending({ action: 'merge', fields });
+}
+function saveAsNew() { _resolvePending({ action: 'create' }); }
+function discardPending() {
+  if (!confirm('Discard this pending import? The extracted draft will be deleted.')) return;
+  _resolvePending({ action: 'discard' });
+}
+
+// Import one recipe from a link (recipe site / Instagram) or pasted text, then
+// open it in the editor to review. Kept in the original language unless "Translate to English" is on.
+async function importFromLink() {
+  const el = document.getElementById('link-import-input');
+  const btn = document.getElementById('link-import-btn');
+  const statusEl = document.getElementById('link-import-status');
+  const raw = el.value.trim();
+  if (!raw) { statusEl.textContent = 'Paste a link or recipe text first.'; return; }
+  const isUrl = /^https?:\/\//i.test(raw);
+  btn.disabled = true;
+  statusEl.textContent = isUrl ? '⏳ Reading the page…' : '⏳ Reading recipe…';
+  try {
+    const who = document.getElementById('import-who')?.value || '';
+    const translate = !!document.getElementById('import-translate')?.checked;
+    const res = await fetch(`${API}/recipes/import-link`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign(isUrl ? { url: raw } : { text: raw }, { who, translate })),
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).detail || msg; } catch (e) {}
+      throw new Error(msg);
+    }
+    const json = await res.json();
+    el.value = '';
+    if (json.pending) {
+      statusEl.textContent = `Looks like "${json.matchName}" — queued under Pending imports to compare & merge.`;
+      loadPending();
+    } else {
+      statusEl.textContent = `✓ Imported "${json.name}" — opening for review…`;
+      await loadData();
+      openRecipeForm(json.id);
+    }
+  } catch (e) {
+    statusEl.textContent = 'Import failed — ' + (e.message || 'unknown error');
+  }
+  btn.disabled = false;
+}
+
+// Bulk-import recipes from a Notion "Markdown & CSV" export (.zip).
+async function importNotionZip(file) {
+  const input = document.getElementById('notion-zip');
+  const statusEl = document.getElementById('notion-import-status');
+  const resEl = document.getElementById('notion-import-results');
+  resEl.innerHTML = '';
+  if (!file) return;
+  if (!/\.zip$/i.test(file.name)) { statusEl.textContent = 'Please choose the .zip Notion export.'; input.value = ''; return; }
+  if (file.size > 40 * 1024 * 1024) { statusEl.textContent = 'That file is over 40 MB — too large.'; input.value = ''; return; }
+  statusEl.textContent = '⏳ Reading recipes… a big library can take a minute.';
+  try {
+    const b64 = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(',')[1] || '');
+      r.onerror = () => reject(new Error('Could not read the file'));
+      r.readAsDataURL(file);
+    });
+    const who = document.getElementById('import-who')?.value || '';
+    const translate = !!document.getElementById('import-translate')?.checked;
+    const res = await fetch(`${API}/recipes/import-notion`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ zip: b64, who, translate }),
+    });
+    if (!res.ok) throw new Error((await res.text()) || res.statusText);
+    const json = await res.json();
+    const n = (json.imported || []).length;
+    const p = (json.pending || []).length;
+    statusEl.textContent = (n || p)
+      ? `✓ Imported ${n}${p ? `, ${p} queued for merge` : ''}.`
+      : 'No recipes could be read from that export.';
+    let html = '';
+    if (n) {
+      html += `<div class="section-desc" style="margin:0 0 6px;">Imported — click any to review or fine-tune:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">` +
+        json.imported.map(r => `<button class="tag-pill" style="cursor:pointer;border:none;" onclick="openRecipeForm('${shopEsc(r.id)}')">${shopEsc(r.name)}</button>`).join('') +
+        `</div>`;
+    }
+    if (p) {
+      html += `<div class="section-desc" style="margin:10px 0 0;">${p} page${p === 1 ? '' : 's'} matched an existing recipe — see <b>Pending imports</b> above to compare &amp; merge.</div>`;
+    }
+    if ((json.failed || []).length) {
+      html += `<div class="section-desc" style="margin:10px 0 0;color:var(--text3);">Couldn't read ${json.failed.length} page${json.failed.length === 1 ? '' : 's'}: ${json.failed.map(f => shopEsc(f.name)).join(', ')} — add these by hand if needed.</div>`;
+    }
+    if (json.truncated) {
+      html += `<div class="section-desc" style="margin:10px 0 0;">Only the first 80 pages were processed — run the import again to bring in the rest.</div>`;
+    }
+    resEl.innerHTML = html;
+    if (n) { await loadData(); }   // refresh the library so the new recipes appear
+    if (p) { loadPending(); }      // surface the queued matches
+  } catch (e) {
+    statusEl.textContent = 'Import failed — ' + (e.message || 'unknown error');
+  }
+  input.value = '';   // allow re-selecting the same file
+}
+
+async function openRecipeForm(id) {
+  editingRecipeId = id;
+  pendingPhotoId = null;   // a normal open/edit discards any un-saved scanned photo
+  photoScanMatch = null;
+  document.getElementById('recipe-list-view').style.display = 'none';
+  document.getElementById('recipe-form-view').style.display = 'block';
+  document.getElementById('recipe-form-title').textContent = id ? 'Edit recipe' : 'New recipe';
+  document.getElementById('recipe-save-status').textContent = '';
+
+  document.getElementById('rf-entered-by').innerHTML = entererOptions();
+
+  if (id) {
+    try {
+      const res = await fetch(`${API}/recipes/${id}`);
+      populateRecipeForm(await res.json());
+    } catch(e) { clearRecipeForm(); }
+  } else {
+    clearRecipeForm();
+  }
+}
+
+function closeRecipeForm() {
+  document.getElementById('recipe-form-view').style.display = 'none';
+  document.getElementById('recipe-list-view').style.display = 'block';
+  editingRecipeId = null;
+  pendingPhotoId = null;
+  photoScanMatch = null;
+  renderRecipes();                            // show any just-saved edits in the list
+}
+
+// ── Scan a recipe photo → pre-fill the editor for review (F7 in admin) ─────────
+function toBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1]);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+function unwrapVal(f) {
+  return (f && typeof f === 'object' && 'value' in f && 'source' in f) ? f.value : f;
+}
+// Turn a per-field-provenance extraction draft into a plain recipe the editor can show.
+function unwrapDraft(d) {
+  const g = k => unwrapVal(d[k]);
+  const ing = i => { const o = unwrapVal(i) || {}; const f = k => unwrapVal(o[k]);
+    return { amount: f('amount') == null ? '' : String(f('amount')), unit: String(f('unit') || ''),
+             item: String(f('item') || ''), notes: String(f('notes') || '') }; };
+  const step = s => { const o = unwrapVal(s) || {}; const f = k => unwrapVal(o[k]);
+    return { text: String(f('text') || ''), duration_min: parseInt(f('duration_min')) || 0 }; };
+  const src = unwrapVal(d.source) || {};
+  const sf = k => unwrapVal(src[k]);
+  const stype = sf('type');
+  return {
+    name: String(g('name') || ''), description: String(g('description') || ''),
+    cuisine: String(g('cuisine') || ''), course: g('course') || '',
+    tags: g('tags') || [], meal_type: g('meal_type') || [], dietary: g('dietary') || [],
+    servings: parseInt(g('servings')) || 4, difficulty: parseInt(g('difficulty')) || 2,
+    prep_time_min: parseInt(g('prep_time_min')) || 0, cook_time_min: parseInt(g('cook_time_min')) || 0,
+    inactive_time_min: parseInt(g('inactive_time_min')) || 0,
+    ingredients: (g('ingredients') || []).map(ing), equipment: g('equipment') || [],
+    steps: (g('steps') || []).map(step), notes: String(g('notes') || ''),
+    variations: g('variations') || [],
+    source: { type: (stype && stype !== 'unknown') ? stype : 'photo', value: String(sf('value') || ''),
+              author: String(sf('author') || ''), publisher: String(sf('publisher') || ''), page: String(sf('page') || '') },
+  };
+}
+
+async function extractRecipePhoto(file) {
+  if (!file) return;
+  const input = document.getElementById('recipe-photo');
+  const status = document.getElementById('notion-import-status');
+  status.textContent = '📸 Reading the photo… ~20s'; status.style.color = 'var(--text2)';
+  try {
+    const b64 = await toBase64(file);
+    const res = await fetch(`${API}/recipes/extract`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: b64, media_type: file.type || 'image/jpeg',
+                             translate: !!document.getElementById('import-translate')?.checked }),
+    });
+    if (!res.ok) throw new Error((await res.text()) || res.statusText);
+    const { draft, photo_id, matches } = await res.json();
+    const recipe = unwrapDraft(draft);
+    const who = document.getElementById('import-who')?.value || 'owner';
+    recipe.log = { entered_by: who, entered_at: new Date().toISOString().split('T')[0] };
+    await openRecipeForm(null);                 // clears the form + pendingPhotoId
+    populateRecipeForm(recipe);
+    pendingPhotoId = photo_id;                  // attach on save
+    document.getElementById('recipe-form-title').textContent = 'Review scanned recipe';
+    photoScanMatch = (matches && matches.length) ? matches[0] : null;
+    const st = document.getElementById('recipe-save-status');
+    if (photoScanMatch) {
+      st.innerHTML = `⚠ Looks like <b>${shopEsc(photoScanMatch.name)}</b> already exists — ` +
+        `<button class="btn-add" style="padding:2px 8px;" onclick="comparePhotoMatch()">Compare &amp; merge</button> or Save as new below.`;
+      st.style.color = 'var(--danger)';
+    } else {
+      st.textContent = 'Review the extracted fields, then Save.'; st.style.color = 'var(--text2)';
+    }
+    status.textContent = '';
+  } catch (e) {
+    status.textContent = 'Couldn’t read a recipe from that photo.'; status.style.color = 'var(--danger)';
+  }
+  input.value = '';   // allow re-selecting the same file
+}
+
+function clearRecipeForm() {
+  ['rf-name','rf-description','rf-cuisine','rf-tags','rf-equipment','rf-source-value',
+   'rf-source-author','rf-source-publisher','rf-source-page','rf-notes','rf-variations'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('rf-prep').value = '0';
+  document.getElementById('rf-cook').value = '0';
+  document.getElementById('rf-inactive').value = '0';
+  document.getElementById('rf-servings').value = '4';
+  document.getElementById('rf-difficulty').value = '2';
+  document.getElementById('rf-cost').value = 'low';
+  document.getElementById('rf-course').value = '';
+  document.getElementById('rf-leftovers').checked = false;
+  document.getElementById('rf-source-type').value = 'memory';
+  document.getElementById('rf-entered-at').value = new Date().toISOString().split('T')[0];
+  document.getElementById('rf-rating').value = '';
+  setTagBtns('rf-meal-type-btns', []);
+  setTagBtns('rf-dietary-btns', []);
+  renderIngredients([]);
+  renderSteps([]);
+}
+
+function populateRecipeForm(r) {
+  document.getElementById('rf-name').value = r.name || '';
+  document.getElementById('rf-description').value = r.description || '';
+  document.getElementById('rf-cuisine').value = r.cuisine || '';
+  document.getElementById('rf-course').value = RECIPE_COURSES.includes(r.course) ? r.course : '';
+  document.getElementById('rf-tags').value = (r.tags || []).join(', ');
+  document.getElementById('rf-prep').value = r.prep_time_min || 0;
+  document.getElementById('rf-cook').value = r.cook_time_min || 0;
+  document.getElementById('rf-inactive').value = r.inactive_time_min || 0;
+  document.getElementById('rf-servings').value = r.servings || 4;
+  document.getElementById('rf-difficulty').value = r.difficulty || 2;
+  document.getElementById('rf-cost').value = r.cost || 'low';
+  document.getElementById('rf-leftovers').checked = !!r.creates_leftovers;
+  document.getElementById('rf-equipment').value = (r.equipment || []).join(', ');
+  document.getElementById('rf-source-type').value = r.source?.type || 'memory';
+  document.getElementById('rf-source-value').value = r.source?.value || '';
+  document.getElementById('rf-source-author').value = r.source?.author || '';
+  document.getElementById('rf-source-publisher').value = r.source?.publisher || '';
+  document.getElementById('rf-source-page').value = r.source?.page || '';
+  document.getElementById('rf-notes').value = r.notes || '';
+  document.getElementById('rf-variations').value = (r.variations || []).join('\n');
+  const enteredBy = r.log?.entered_by;
+  document.getElementById('rf-entered-by').value = recipeEnterers().some(e => e.id === enteredBy) ? enteredBy : 'unknown';
+  document.getElementById('rf-entered-at').value = r.log?.entered_at || new Date().toISOString().split('T')[0];
+  document.getElementById('rf-rating').value = r.rating || '';
+  setTagBtns('rf-meal-type-btns', r.meal_type || []);
+  setTagBtns('rf-dietary-btns', r.dietary || []);
+  renderIngredients(r.ingredients || []);
+  renderSteps(r.steps || []);
+}
+
+function setTagBtns(groupId, selected) {
+  document.querySelectorAll(`#${groupId} .tag-btn`).forEach(btn => {
+    btn.classList.toggle('tag-btn-on', selected.includes(btn.dataset.val));
+  });
+}
+function toggleTagBtn(btn) { btn.classList.toggle('tag-btn-on'); }
+function getTagBtns(groupId) {
+  return Array.from(document.querySelectorAll(`#${groupId} .tag-btn.tag-btn-on`)).map(b => b.dataset.val);
+}
+
+function renderIngredients(list) {
+  document.getElementById('rf-ingredients').innerHTML = '';
+  (list.length ? list : [{}]).forEach(ing => addIngredientRow(ing));
+}
+function addIngredientRow(ing = {}) {
+  const el = document.getElementById('rf-ingredients');
+  const row = document.createElement('div');
+  row.className = 'ingredient-row';
+  row.style.cssText = 'display:grid;grid-template-columns:80px 70px 1fr 1fr 28px;';
+  row.innerHTML = `
+    <input class="ing-amount" type="text" placeholder="e.g. 400" value="${shopEsc(ing.amount||'')}" />
+    <input class="ing-unit"   type="text" placeholder="g / pcs" value="${shopEsc(ing.unit||'')}" />
+    <input class="ing-item"   type="text" placeholder="Ingredient" value="${shopEsc(ing.item||'')}" />
+    <input class="ing-notes"  type="text" placeholder="Notes" value="${shopEsc(ing.notes||'')}" />
+    <button type="button" class="btn-icon" onclick="this.closest('.ingredient-row').remove()">✕</button>`;
+  el.appendChild(row);
+}
+function getIngredients() {
+  return Array.from(document.querySelectorAll('#rf-ingredients .ingredient-row')).map(row => ({
+    amount: row.querySelector('.ing-amount').value.trim(),
+    unit:   row.querySelector('.ing-unit').value.trim(),
+    item:   row.querySelector('.ing-item').value.trim(),
+    notes:  row.querySelector('.ing-notes').value.trim(),
+  })).filter(i => i.item);
+}
+
+function renderSteps(list) {
+  document.getElementById('rf-steps').innerHTML = '';
+  (list.length ? list : [{}]).forEach(s => addStepRow(s));
+}
+function addStepRow(step = {}) {
+  const el = document.getElementById('rf-steps');
+  const n = el.children.length + 1;
+  const row = document.createElement('div');
+  row.className = 'step-row';
+  row.innerHTML = `
+    <div class="step-num">${n}</div>
+    <textarea class="step-text" placeholder="Describe this step…">${shopEsc(step.text||'')}</textarea>
+    <input class="step-dur" type="number" min="0" placeholder="min" title="Duration in minutes" value="${step.duration_min||''}" />
+    <button type="button" class="btn-icon" onclick="this.closest('.step-row').remove();renumberSteps()">✕</button>`;
+  el.appendChild(row);
+}
+function renumberSteps() {
+  document.querySelectorAll('#rf-steps .step-num').forEach((n, i) => { n.textContent = i + 1; });
+}
+function getSteps() {
+  return Array.from(document.querySelectorAll('#rf-steps .step-row')).map(row => ({
+    text:         row.querySelector('.step-text').value.trim(),
+    duration_min: parseInt(row.querySelector('.step-dur').value) || 0,
+  })).filter(s => s.text);
+}
+
+function buildRecipeFromForm() {
+  return {
+    id:               editingRecipeId || slugifyName(document.getElementById('rf-name').value.trim()),
+    name:             document.getElementById('rf-name').value.trim(),
+    description:      document.getElementById('rf-description').value.trim(),
+    tags:             document.getElementById('rf-tags').value.split(',').map(t => t.trim()).filter(Boolean),
+    meal_type:        getTagBtns('rf-meal-type-btns'),
+    cuisine:          document.getElementById('rf-cuisine').value.trim(),
+    course:           document.getElementById('rf-course').value,
+    dietary:          getTagBtns('rf-dietary-btns'),
+    servings:         parseInt(document.getElementById('rf-servings').value) || 4,
+    difficulty:       parseInt(document.getElementById('rf-difficulty').value) || 2,
+    cost:             document.getElementById('rf-cost').value,
+    creates_leftovers: document.getElementById('rf-leftovers').checked,
+    prep_time_min:    parseInt(document.getElementById('rf-prep').value) || 0,
+    cook_time_min:    parseInt(document.getElementById('rf-cook').value) || 0,
+    inactive_time_min:parseInt(document.getElementById('rf-inactive').value) || 0,
+    ingredients:      getIngredients(),
+    equipment:        document.getElementById('rf-equipment').value.split(',').map(e => e.trim()).filter(Boolean),
+    steps:            getSteps(),
+    source: {
+      type:      document.getElementById('rf-source-type').value,
+      value:     document.getElementById('rf-source-value').value.trim(),
+      author:    document.getElementById('rf-source-author').value.trim(),
+      publisher: document.getElementById('rf-source-publisher').value.trim(),
+      page:      document.getElementById('rf-source-page').value.trim(),
+    },
+    notes:      document.getElementById('rf-notes').value.trim(),
+    variations: document.getElementById('rf-variations').value.split('\n').map(v => v.trim()).filter(Boolean),
+    rating:     parseInt(document.getElementById('rf-rating').value) || null,
+    log: {
+      entered_by: document.getElementById('rf-entered-by').value,
+      entered_at: document.getElementById('rf-entered-at').value || new Date().toISOString().split('T')[0],
+    },
+  };
+}
+
+// From the scan/photo review, queue the current draft against its match and open
+// the side-by-side merge instead of saving a duplicate.
+async function comparePhotoMatch() {
+  if (!photoScanMatch) return;
+  const m = photoScanMatch;
+  const recipe = buildRecipeFromForm();
+  if (!recipe.name) { alert('Recipe name is required.'); return; }
+  try {
+    const r = await fetch(`${API}/recipes/pending`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipe, matchId: m.id, matchName: m.name, matchScore: m.score,
+                             who: recipe.log.entered_by }),
+    });
+    const j = await r.json();
+    closeRecipeForm();
+    openMerge(j.pendingId);
+  } catch (e) { alert('Couldn’t queue for merge: ' + e.message); }
+}
+
+async function saveRecipe() {
+  const name = document.getElementById('rf-name').value.trim();
+  if (!name) { alert('Recipe name is required.'); return; }
+  const recipe = buildRecipeFromForm();
+  const isNew = !editingRecipeId;
+  if (isNew && pendingPhotoId) {           // attach the scanned photo to the new recipe
+    recipe._pending_photo = pendingPhotoId;
+    recipe._photo_who = recipe.log.entered_by;
+  }
+  const method = isNew ? 'POST' : 'PUT';
+  const url    = isNew ? `${API}/recipes` : `${API}/recipes/${editingRecipeId}`;
+  try {
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(recipe) });
+    const json = await res.json();
+    if (isNew) editingRecipeId = json.id;
+    pendingPhotoId = null;
+    recipeIndex = await (await fetch(`${API}/recipes`)).json();
+    renderRecipes();                          // reflect the edit in the list behind the form
+    const st = document.getElementById('recipe-save-status');
+    st.textContent = 'Saved ✓'; st.style.color = 'var(--success)';
+    setTimeout(() => { st.textContent = ''; }, 2500);
+  } catch(e) { alert('Save failed: ' + e.message); }
+}
+
+async function deleteRecipe(id) {
+  if (!confirm('Delete this recipe? This cannot be undone.')) return;
+  await fetch(`${API}/recipes/${id}`, { method: 'DELETE' });
+  recipeIndex = recipeIndex.filter(r => r.id !== id);
+  renderRecipes();
+}
+
+function slugifyName(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+// ── Members ───────────────────────────────────────────────────
+function nearestInkyColor(hex) {
+  try {
+    const h = (hex || '#000').replace('#', '');
+    const r = parseInt(h.slice(0,2), 16);
+    const g = parseInt(h.slice(2,4), 16);
+    const b = parseInt(h.slice(4,6), 16);
+    if (r > 200 && g > 200 && b > 200) return '#ffffff';
+    if (b > 150 && r < 100) return '#0000ff';
+    if (r > 150 && g < 100) return '#ff0000';
+    if (g > 150 && r < 100) return '#00ff00';
+    if (r > 150 && g > 150) return '#ffff00';
+    return '#000000';
+  } catch(e) { return '#000000'; }
+}
+
+const INKY_PALETTE = [
+  { name: 'Black',  hex: '#000000' },
+  { name: 'White',  hex: '#ffffff' },
+  { name: 'Red',    hex: '#ff0000' },
+  { name: 'Green',  hex: '#00ff00' },
+  { name: 'Blue',   hex: '#0000ff' },
+  { name: 'Yellow', hex: '#ffff00' },
+];
+
+function colorSwatches(field, memberIdx, current) {
+  return INKY_PALETTE.map(c => {
+    const selected = c.hex.toLowerCase() === (current||'').toLowerCase();
+    return `<div title="${c.name}" onclick="data.settings.members[${memberIdx}]['${field}']='${c.hex}';renderMembers()"
+      style="width:24px;height:24px;border-radius:4px;background:${c.hex};cursor:pointer;
+             border:${selected ? '3px solid var(--accent)' : '1.5px solid var(--border2)'};
+             box-shadow:${selected ? '0 0 0 1px var(--accent)' : 'none'};flex-shrink:0;"></div>`;
+  }).join('');
+}
+
+function eventColorSwatches(key, current) {
+  return INKY_PALETTE.map(c => {
+    const selected = c.hex.toLowerCase() === (current||'').toLowerCase();
+    return `<div title="${c.name}" onclick="data.settings.eventColors['${key}']='${c.hex}';renderMembers()"
+      style="width:24px;height:24px;border-radius:4px;background:${c.hex};cursor:pointer;
+             border:${selected ? '3px solid var(--accent)' : '1.5px solid var(--border2)'};
+             box-shadow:${selected ? '0 0 0 1px var(--accent)' : 'none'};flex-shrink:0;"></div>`;
+  }).join('');
+}
+
+function renderMembers() {
+  const el = document.getElementById('members-card');
+  const members = data.settings?.members || [];
+  const ec = data.settings?.eventColors || { birthday: '#ffff00', recurring: '#000000' };
+  el.innerHTML = '<div class="card-title">Family members</div>'
+    + '<div class="section-desc" style="margin:-4px 0 12px;">Each fixed <b>role</b> maps to a display <b>name</b>. Roles stay anonymous in the data; edit the name each role points to below.</div>';
+  members.forEach((m, i) => {
+    el.innerHTML += `<div style="padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:10px;background:var(--surface2);">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+        <div class="color-swatch" style="background:${m.bg};border-color:${m.text}"></div>
+        <span title="Role (fixed identifier)" style="font-size:11px;font-weight:700;color:var(--text3);text-transform:capitalize;min-width:50px;">${shopEsc(m.id)}</span>
+        <span style="color:var(--text3);">→</span>
+        <input value="${shopEsc(m.label)}" placeholder="Name" onchange="data.settings.members[${i}].label=this.value"
+          style="border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:var(--text);flex:1;padding:6px 8px;" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:6px;">Background</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">${colorSwatches('bg', i, m.bg)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:6px;">Text</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">${colorSwatches('text', i, m.text)}</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;padding:6px 10px;border-radius:var(--radius-sm);background:${m.bg};color:${m.text};font-size:12px;font-weight:500;">
+        ${m.label}
+      </div>
+    </div>`;
+  });
+
+  // Swedish red-days toggle
+  const showHol = data.settings?.display?.showHolidays !== false;
+  el.innerHTML += `<div style="padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:10px;background:var(--surface2);">
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;cursor:pointer;">
+      <input type="checkbox" ${showHol ? 'checked' : ''} onchange="data.settings.display=data.settings.display||{};data.settings.display.showHolidays=this.checked">
+      Show Swedish holidays (red days)
+    </label>
+    <div class="section-desc" style="margin:6px 0 0;">Public "röda dagar" — computed locally for Europe/Stockholm. The day number turns red and the holiday name shows on the calendar.</div>
+  </div>`;
+
+  // Birthday and holiday event colors (background + text)
+  const eventTypes = [
+    { key: 'birthday', label: 'Birthdays', preview: '🎂 Birthday' },
+    { key: 'holiday',  label: 'Holidays (red days)', preview: '🇸🇪 Midsommar' },
+  ];
+  eventTypes.forEach(({ key, label, preview }) => {
+    const color = ec[key] || '#000000';
+    const textColor = ec[key + 'Text'] || (key === 'birthday' ? '#000000' : '#ffffff');
+    el.innerHTML += `<div style="padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:10px;background:var(--surface2);">
+      <div style="font-size:13px;font-weight:500;margin-bottom:10px;">${label}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:6px;">Background</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">${eventColorSwatches(key, color)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:6px;">Text</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">${eventColorSwatches(key + 'Text', textColor)}</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;padding:5px 8px;border-radius:var(--radius-sm);background:${color};color:${textColor};font-size:12px;font-weight:500;display:inline-block;">
+        ${preview}
+      </div>
+    </div>`;
+  });
+}
+
+// ── AI settings ───────────────────────────────────────────────
+// Suggested defaults — mirror backend DEFAULT_* constants. Used as a fallback so
+// the fields are never empty even before /meals/prompts is reachable.
+const MEAL_PROMPT_DEFAULTS = {
+  initialPrompt:
+    "Plan balanced, family-friendly dinners for the week. Keep Monday to Thursday " +
+    "quick and simple; a longer cook is fine at the weekend. Include at least two " +
+    "fish or vegetarian nights and avoid repeating the same dish within the week.",
+  systemGenerate:
+`You are the household's weekly dinner-planning assistant for a family of 3 in Stockholm.
+
+Your task: decide the dinner for each of the 7 days of the week, Monday through Sunday.
+
+Recipe source:
+- Choose dishes ONLY from the family's recipe library provided in the user message — those ids/names are the only allowed options. Never invent a recipe that is not in the list. (Only if the library is empty may you suggest sensible family-friendly dinners of your own.)
+- Do NOT pick a recipe that appears in the "recently served" list unless the library is too small to fill the week without repeating.
+- Vary cuisines and main ingredients across the week; do not use the same recipe twice in one week unless unavoidable.
+
+Days and events:
+- Match effort to the day: quicker recipes on busy days, longer or weekend recipes on free days.
+- Recipes marked "makes leftovers" can cover the next 1-2 days: after placing one, you MAY set the following day (or two) to "Leftovers: <dish>" reusing the same id, with a short note, instead of cooking again. Leftover days reuse the same recipe on purpose and do NOT count as unwanted repeats.
+- If a day's events already cover dinner (e.g. a dinner out, restaurant, party, or BBQ), do NOT assign a recipe for that day — return it with an empty name and a short note such as "Dinner out". Treat non-dinner events only as context (e.g. a quicker recipe on a busy evening).
+- Respect any dietary limits stated in the preferences.
+
+Return ONLY a JSON array of exactly 7 objects, one per day in order Monday to Sunday:
+[{"id":"<recipe id from the library, or null if the day is skipped>","name":"<recipe name, or empty string if skipped>","notes":"<max 8 words: why it fits, or why the day is skipped>"}]
+Always return all 7 days. Use only ids and names that appear in the library. Output no prose and no markdown — just the JSON array.`,
+  systemRefine:
+`You are the household's dinner-planning assistant, revising an existing weekly plan for a family of 3 in Stockholm.
+
+You are given: the current 7-day plan (Monday to Sunday), this week's context (which days are busy), the family's recipe library, and a change request from the user.
+
+Apply the change request precisely:
+- If it names specific days, change ONLY those days and leave every other day exactly as it is.
+- If it asks for a whole-week change, revise the days it affects and keep the rest coherent.
+- Choose any replacement ONLY from the recipe library — never invent a dish. Avoid repeating a recipe already used elsewhere in the week unless asked.
+- Keep matching effort to the day (quicker recipes on busy days) and keep variety across the week.
+- If the request cannot be met from the library, keep the closest available recipe and note the limitation briefly in that day's "notes".
+
+Return ONLY the FULL updated plan as a JSON array of exactly 7 objects, in order Monday to Sunday, INCLUDING the days you did not change:
+[{"id":"<recipe id>","name":"<recipe name>","notes":"<max 8 words>"}]
+Use only ids and names from the library. Output no prose and no markdown — just the JSON array.`,
+  recentWeeks: 2,
+  staleWeeks: 6,
+};
+
+const COST_SIGNS = c => '$'.repeat(Math.max(1, Math.min(4, c || 1)));
+// 12345 → "12.3k". Token counts get long fast and the exact digit never matters.
+const tokFmt = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n || 0);
+// Cost is a floor, not a total, when any call in the bucket came from a provider
+// that doesn't report one — say so rather than under-report.
+const costFmt = b => !b.cost ? '' : `${b.cost_known ? '' : '≥ '}$${b.cost < 0.01 ? b.cost.toFixed(4) : b.cost.toFixed(2)}`;
+async function renderAIUsage() {
+  const box  = document.getElementById('ai-usage');
+  const note = document.getElementById('ai-usage-note');
+  if (!box) return;
+  let u;
+  try { u = await (await fetch(`${API}/ai/usage?days=14`)).json(); }
+  catch (e) { box.innerHTML = ''; note.textContent = 'Usage unavailable — backend unreachable.'; return; }
+  const { today, days, window: win, models } = u;
+  if (!win.calls) {
+    box.innerHTML = '';
+    note.textContent = 'No AI calls recorded yet. Counting starts with the next meal plan, recipe import or aisle tagging.';
+    return;
+  }
+  const peak = Math.max(...days.map(d => d.total), 1);
+  const cost = costFmt(today);
+  box.innerHTML =
+    `<div class="usage-today"><b>${tokFmt(today.total)}</b>`
+    + `<span>tokens today · ${today.calls} call${today.calls === 1 ? '' : 's'}`
+    + `${cost ? ` · ${cost}` : ''}</span></div>`
+    + days.map(d => `<div class="usage-row">`
+        + `<span class="d">${d.date.slice(5)}</span>`
+        + `<span class="bar"><i style="width:${Math.round(d.total / peak * 100)}%"></i></span>`
+        + `<span class="n">${d.total ? tokFmt(d.total) : '·'}</span></div>`).join('')
+    + `<div class="usage-models">` + models.map(m =>
+        `<div>${shopEsc(m.model)} — ${tokFmt(m.total)} in ${m.calls} call${m.calls === 1 ? '' : 's'}`
+        + `${costFmt(m) ? ` · ${costFmt(m)}` : ''}</div>`).join('') + `</div>`;
+  const winCost = costFmt(win);
+  note.textContent = `${tokFmt(win.in)} in / ${tokFmt(win.out)} out over ${win.calls} calls in 14 days`
+    + `${winCost ? ` · ${winCost}` : ''}. `
+    + (win.cost_known && winCost
+        ? 'Cost is the exact amount the provider billed.'
+        : 'Only OpenRouter reports a per-call cost, so the money figure covers OpenRouter calls alone; the rest show tokens.');
+}
+async function renderAI() {
+  document.getElementById('ai-family-name').value = data.settings?.familyName || '';
+  // AI model picker — options from the backend registry (name + cost tier).
+  try {
+    const info = await (await fetch(`${API}/ai/models`)).json();
+    const sel = document.getElementById('ai-model');
+    const chosen = data.settings?.ai?.model || info.selected;
+    // Two groups: the ones that suit this app's mix of tasks (each carries its
+    // own `rec` reason from the backend registry), then everything else.
+    const opt = m => {
+      const off = !info.providers[m.provider];
+      return `<option value="${shopEsc(m.id)}"${m.id === chosen ? ' selected' : ''}>`
+        + `${shopEsc(m.label)} — ${COST_SIGNS(m.cost)}`
+        + `${m.rec ? ` · ${shopEsc(m.rec)}` : ''}${off ? ' (no API key)' : ''}</option>`;
+    };
+    const group = (label, models) => models.length
+      ? `<optgroup label="${label}">${models.map(opt).join('')}</optgroup>` : '';
+    sel.innerHTML = group('Recommended for this app', info.models.filter(m => m.rec))
+                  + group('Other models',            info.models.filter(m => !m.rec));
+    const missing = Object.entries(info.providers).filter(([, ok]) => !ok).map(([p]) => p);
+    const legend = '$ = cheaper, $$$$ = pricier. Recommended = a good balance of recipe-photo '
+                 + 'reading, meal planning and cost; the rest work too.';
+    document.getElementById('ai-model-note').textContent = missing.length
+      ? `${legend} No API key configured for: ${missing.join(', ')} — those models won't run until a key is set on the server.`
+      : `${legend} Applies to every AI feature.`;
+  } catch (e) { /* backend unreachable — leave the picker empty */ }
+  await renderAIUsage();
+  // Effective prompts = saved settings values, or the backend defaults.
+  let eff = {};
+  try { eff = await (await fetch(`${API}/meals/prompts`)).json(); } catch(e) {}
+  document.getElementById('mp-initial').value  = eff.initialPrompt  || MEAL_PROMPT_DEFAULTS.initialPrompt;
+  document.getElementById('mp-generate').value = eff.systemGenerate || MEAL_PROMPT_DEFAULTS.systemGenerate;
+  document.getElementById('mp-refine').value   = eff.systemRefine   || MEAL_PROMPT_DEFAULTS.systemRefine;
+  document.getElementById('mp-recent-weeks').value = eff.recentWeeks ?? MEAL_PROMPT_DEFAULTS.recentWeeks;
+  document.getElementById('mp-stale-weeks').value  = eff.staleWeeks  ?? MEAL_PROMPT_DEFAULTS.staleWeeks;
+  const sp = document.getElementById('meal-standing-prompt');
+  if (sp) sp.textContent = eff.initialPrompt || MEAL_PROMPT_DEFAULTS.initialPrompt;
+}
+function collectAI() {
+  data.settings = data.settings || {};
+  data.settings.familyName = document.getElementById('ai-family-name').value;
+  const modelSel = document.getElementById('ai-model');
+  if (modelSel && modelSel.value) data.settings.ai = { model: modelSel.value };
+  const recentW = parseInt(document.getElementById('mp-recent-weeks').value, 10);
+  const staleW  = parseInt(document.getElementById('mp-stale-weeks').value, 10);
+  data.settings.mealPlanner = {
+    initialPrompt:  document.getElementById('mp-initial').value,
+    systemGenerate: document.getElementById('mp-generate').value,
+    systemRefine:   document.getElementById('mp-refine').value,
+    recentWeeks: Number.isFinite(recentW) ? recentW : MEAL_PROMPT_DEFAULTS.recentWeeks,
+    staleWeeks:  Number.isFinite(staleW)  ? staleW  : MEAL_PROMPT_DEFAULTS.staleWeeks,
+  };
+  delete data.settings.mealPrompt;   // legacy field, no longer used
+}
+
+// ── Mail sync (mailbox.org) ───────────────────────────────────
+const MS_DEFAULTS = { enabled: false, invitees: [], defaultWho: 'family',
+                      autoAccept: false, syncEvents: true, syncRecurring: true };
+
+function renderMailSync() {
+  const ms = { ...MS_DEFAULTS, ...(data.settings?.mailSync || {}) };
+  document.getElementById('ms-enabled').checked = !!ms.enabled;
+  document.getElementById('ms-invitees').value = (ms.invitees || []).join('\n');
+  document.getElementById('ms-autoaccept').checked = !!ms.autoAccept;
+  document.getElementById('ms-sync-events').checked = !!ms.syncEvents;
+  document.getElementById('ms-sync-recurring').checked = !!ms.syncRecurring;
+  const whoSel = document.getElementById('ms-who');
+  whoSel.innerHTML = (data.settings?.members || [])
+    .map(m => `<option value="${shopEsc(m.id)}">${shopEsc(m.label)}</option>`).join('');
+  whoSel.value = ms.defaultWho || 'family';
+  loadMailsyncStatus();
+}
+
+function collectMailSync() {
+  data.settings = data.settings || {};
+  data.settings.mailSync = {
+    enabled:       document.getElementById('ms-enabled').checked,
+    invitees:      document.getElementById('ms-invitees').value.split('\n')
+                     .map(s => s.trim().toLowerCase()).filter(Boolean),
+    defaultWho:    document.getElementById('ms-who').value || 'family',
+    autoAccept:    document.getElementById('ms-autoaccept').checked,
+    syncEvents:    document.getElementById('ms-sync-events').checked,
+    syncRecurring: document.getElementById('ms-sync-recurring').checked,
+  };
+}
+
+async function loadMailsyncStatus() {
+  const el = document.getElementById('ms-status');
+  try {
+    const s = await (await fetch(`${API}/mailsync/status`)).json();
+    if (!s.configured) {
+      el.innerHTML = `<span style="color:var(--text3);">Not configured on the server.</span><br>
+        Missing environment variables: <b>${shopEsc((s.missing_env || []).join(', '))}</b><br>
+        See <code>.env.example</code> and MAILSYNC_DESIGN.md for setup.`;
+      document.getElementById('ms-sync-now').disabled = true;
+      return;
+    }
+    document.getElementById('ms-sync-now').disabled = false;
+    el.innerHTML = `
+      Alias: <b>${shopEsc(s.address || '')}</b> · ${s.enabled ? '🟢 enabled' : '⚪ disabled'}
+      · every ${shopEsc(String(s.pollSeconds))}s<br>
+      Last run: ${shopEsc(s.lastRun || 'never')}
+      ${s.lastError ? `<br><span style="color:#c00;">Last error: ${shopEsc(s.lastError)}</span>` : ''}<br>
+      Tracking ${s.counts.inbound} incoming invitation(s), ${s.counts.outbound} outgoing item(s).
+      ${(s.invitees || []).length ? `<br>Inviting: ${shopEsc(s.invitees.join(', '))}` : ''}`;
+  } catch (e) {
+    el.textContent = 'Could not load status.';
+  }
+}
+
+async function mailsyncRunNow() {
+  const btn = document.getElementById('ms-sync-now');
+  btn.disabled = true; btn.textContent = 'Syncing…';
+  try { await fetch(`${API}/mailsync/run`, { method: 'POST' }); }
+  catch (e) {}
+  btn.disabled = false; btn.textContent = '↻ Sync now';
+  loadMailsyncStatus();
+}
+
+// ── Icon grid ─────────────────────────────────────────────────
+function renderIconGrid(gridId, valId, settingsKey) {
+  const grid = document.getElementById(gridId);
+  if (!grid) return;
+  const val = document.getElementById(valId);
+  grid.innerHTML = '';
+  const visible = data.settings?.[settingsKey];
+  const icons = visible ? ICON_LIST.filter(i => visible.includes(i)) : ICON_LIST;
+  icons.forEach(icon => {
+    const div = document.createElement('div');
+    div.className = 'icon-opt' + (val.value === icon ? ' selected' : '');
+    div.textContent = ICON_EMOJI[icon] || icon;
+    div.title = icon;
+    div.onclick = () => {
+      val.value = icon;
+      grid.querySelectorAll('.icon-opt').forEach(d => d.classList.remove('selected'));
+      div.classList.add('selected');
+    };
+    grid.appendChild(div);
+  });
+}
+
+function renderIcons() {
+  const el = document.getElementById('icons-card');
+  if (!el) return;
+
+  const iconGroup = (settingsKey, label) => {
+    const visible = new Set(data.settings?.[settingsKey] || ICON_LIST);
+    return `<div style="margin-bottom:18px;">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em;">${label}</div>
+      <div>${ICON_LIST.map(icon => {
+        const on = visible.has(icon);
+        return `<div onclick="toggleIcon('${settingsKey}','${icon}')" title="${icon}" style="
+            display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
+            width:56px;height:56px;border-radius:var(--radius-sm);margin:0 6px 6px 0;
+            border:2px solid ${on ? 'var(--accent)' : 'var(--border)'};
+            background:${on ? 'var(--accent-bg)' : 'var(--surface2)'};
+            cursor:pointer;font-size:20px;gap:2px;
+            opacity:${on ? '1' : '0.3'};transition:all 0.15s;">
+          ${ICON_EMOJI[icon] || '?'}
+          <span style="font-size:9px;color:var(--text3);">${icon}</span>
+        </div>`;
+      }).join('')}</div>
+    </div>`;
+  };
+
+  el.innerHTML = iconGroup('eventIcons', 'Events') +
+    '<hr style="margin:4px 0 18px;">' +
+    iconGroup('recurringIcons', 'Recurring');
+}
+
+function toggleIcon(settingsKey, icon) {
+  data.settings = data.settings || {};
+  const current = data.settings[settingsKey]
+    ? [...data.settings[settingsKey]]
+    : [...ICON_LIST];
+  const idx = current.indexOf(icon);
+  if (idx >= 0) {
+    if (current.length > 1) current.splice(idx, 1);
+  } else {
+    current.push(icon);
+  }
+  data.settings[settingsKey] = current;
+  renderIcons();
+  renderIconGrid('ev-icon-grid', 'ev-icon-val', 'eventIcons');
+  renderIconGrid('rec-icon-grid', 'rec-icon-val', 'recurringIcons');
+}
+
+// ── Meal planner ──────────────────────────────────────────────
+function mealWeekShift(dir) {
+  mealWeekStart = new Date(mealWeekStart);
+  mealWeekStart.setDate(mealWeekStart.getDate() + dir * 7);
+  renderMealWeek();
+}
+
+function renderMealWeek() {
+  const end = new Date(mealWeekStart); end.setDate(end.getDate() + 6);
+  document.getElementById('meal-week-label').textContent = fmt(mealWeekStart) + ' – ' + fmt(end);
+  const key = weekKey(mealWeekStart);
+  if (key !== mealEditingWk) { mealEditing = new Set(); mealEditingWk = key; }
+  const plan = localMealPlan[key] || (data.mealPlan || {})[key] || Array(7).fill({ name: '', notes: '' });
+  const grid = document.getElementById('meal-week-grid');
+  grid.innerHTML = '';
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(mealWeekStart); d.setDate(d.getDate() + i);
+    const m = plan[i] || { name: '', notes: '' };
+    const cell = document.createElement('div');
+    cell.className = 'meal-cell';
+    const head = `<div class="meal-cell-day">${DAYS[i]}<br><span style="font-size:9px;font-weight:400">${fmt(d)}</span></div>`;
+    // Recipe-linked days show as a clickable name (opens the recipe); manual/empty days keep free-text inputs.
+    const linked = m.id && m.name && !mealEditing.has(i);
+    if (linked) {
+      cell.innerHTML = head + `
+        <div class="meal-cell-link-row">
+          <button class="meal-cell-name-link" title="Open recipe" onclick="openRecipeFromPlan('${shopEsc(m.id)}')">${shopEsc(m.name)}</button>
+          <div class="meal-cell-actions">
+            <button title="Edit manually" onclick="editMealCell(${i})">✎</button>
+            <button title="Clear" onclick="clearMealCell(${i})">✕</button>
+          </div>
+        </div>
+        ${m.notes ? `<div class="meal-cell-notes">${shopEsc(m.notes)}</div>` : ''}`;
+    } else {
+      cell.innerHTML = head + `
+        <input placeholder="Dinner…" value="${shopEsc(m.name||'')}" onchange="updateMealCell(${i},'name',this.value)" />
+        <textarea placeholder="Notes…" onchange="updateMealCell(${i},'notes',this.value)">${shopEsc(m.notes||'')}</textarea>`;
+    }
+    grid.appendChild(cell);
+  }
+  setSuggestBtn();
+}
+
+// Once a week is planned, "Suggest week" becomes a de-emphasised "Regenerate" with
+// a confirm, so editing/refining leads and the week can't be replaced by accident.
+function mealWeekHasPlan() {
+  const key = weekKey(mealWeekStart);
+  const plan = localMealPlan[key] || (data.mealPlan || {})[key] || [];
+  return plan.some(m => m && m.name);
+}
+function setSuggestBtn() {
+  const b = document.getElementById('meal-suggest-btn'); if (!b) return;
+  if (mealWeekHasPlan()) { b.textContent = '↻ Regenerate'; b.classList.add('secondary'); }
+  else { b.textContent = 'Suggest week ↗'; b.classList.remove('secondary'); }
+}
+
+// Seed a working draft for the week from the saved plan (preserving ids/names of
+// the days you're not touching), so editing one cell can't blank the rest.
+function ensureLocalPlan(wk) {
+  if (!localMealPlan[wk]) {
+    const existing = (data.mealPlan || {})[wk] || [];
+    localMealPlan[wk] = Array(7).fill(null).map((_, j) => ({ ...(existing[j] || { name: '', notes: '' }) }));
+  }
+  return localMealPlan[wk];
+}
+
+function updateMealCell(i, key, val) {
+  const plan = ensureLocalPlan(weekKey(mealWeekStart));
+  plan[i][key] = val;
+  // Typing a name by hand means it's no longer the linked recipe — drop the id.
+  if (key === 'name') plan[i].id = null;
+}
+
+// Switch a recipe-linked day to free-text editing (for an occasional manual override).
+function editMealCell(i) {
+  mealEditing.add(i);
+  renderMealWeek();
+}
+
+// Empty a day back to a blank manual slot.
+function clearMealCell(i) {
+  const plan = ensureLocalPlan(weekKey(mealWeekStart));
+  plan[i] = { id: null, name: '', notes: '' };
+  mealEditing.delete(i);
+  renderMealWeek();
+}
+
+// ── Recipe viewer (read-only sheet, with a jump to the editor) ─
+let viewingRecipeId = null;
+
+async function openRecipeFromPlan(id) {
+  viewingRecipeId = id;
+  const modal = document.getElementById('recipe-modal');
+  const body = document.getElementById('recipe-body');
+  body.innerHTML = '<div style="padding:40px 0;text-align:center;color:var(--text2);">Loading recipe…</div>';
+  modal.classList.add('show');
+  document.getElementById('recipe-sheet').scrollTop = 0;
+  let r = null;
+  try {
+    const res = await fetch(`${API}/recipes/${encodeURIComponent(id)}`);
+    if (res.ok) r = await res.json();
+  } catch (e) { /* handled below */ }
+  if (!r || !r.name) {
+    document.getElementById('recipe-edit-btn').style.display = 'none';
+    body.innerHTML = '<div style="padding:40px 0;text-align:center;color:var(--text2);">Recipe not found — it may have been removed.</div>';
+    return;
+  }
+  document.getElementById('recipe-edit-btn').style.display = '';
+  body.innerHTML = renderRecipe(r);
+}
+
+function closeRecipe() { document.getElementById('recipe-modal').classList.remove('show'); }
+
+// From the viewer, jump into the full editor for the recipe being viewed.
+function editRecipeFromModal() {
+  const id = viewingRecipeId;
+  closeRecipe();
+  if (!id) return;
+  const nav = document.querySelector('.nav-item[onclick*=recipes]');
+  showSection('recipes', nav);
+  openRecipeForm(id);
+}
+
+function renderRecipe(r) {
+  const meta = [];
+  const t = (r.prep_time_min || 0) + (r.cook_time_min || 0);
+  if (t) meta.push(`⏱ ${t} min`);
+  if (r.servings) meta.push(`🍽 ${r.servings} servings`);
+  if (r.difficulty) meta.push(`Difficulty ${r.difficulty}/5`);
+  if (r.cuisine) meta.push(shopEsc(r.cuisine));
+  const ings = (r.ingredients || []).map(ig => {
+    const amt = [ig.amount, ig.unit].filter(Boolean).join(' ');
+    const note = ig.notes ? ` <span class="ing-note">(${shopEsc(ig.notes)})</span>` : '';
+    return `<div class="recipe-ing"><span class="amt">${shopEsc(amt)}</span><span>${shopEsc(ig.item)}${note}</span></div>`;
+  }).join('');
+  const steps = (r.steps || []).map((s, idx) =>
+    `<div class="recipe-step"><span class="num">${idx + 1}</span><span>${shopEsc(s.text)}</span></div>`).join('');
+  return `
+    <h2 class="recipe-title">${shopEsc(r.name)}</h2>
+    ${r.description ? `<div class="recipe-desc">${shopEsc(r.description)}</div>` : ''}
+    ${meta.length ? `<div class="recipe-meta">${meta.map(m => `<span class="recipe-chip">${m}</span>`).join('')}</div>` : ''}
+    ${ings ? `<div class="recipe-h">Ingredients</div>${ings}` : ''}
+    ${steps ? `<div class="recipe-h">Steps</div>${steps}` : ''}
+    ${r.notes ? `<div class="recipe-h">Notes</div><div class="recipe-desc">${shopEsc(r.notes)}</div>` : ''}
+    ${sourceLine(r)}`;
+}
+
+const SOURCE_LABELS = { url: 'Website', instagram: 'Instagram', book: 'Book', magazine: 'Magazine',
+  person: 'Person', text: 'Pasted text', photo: 'Photo scan', notion: 'Notion', ai: 'AI generated',
+  memory: 'Family / memory', handwritten: 'Handwritten', unknown: 'Unknown' };
+
+// Course (F4): canonical order + display labels. '' / unknown → "Other".
+const RECIPE_COURSES = ['main','side','soup','salad','dessert','breakfast','baking','snack','drink','other'];
+const COURSE_LABELS = { main: 'Main course', side: 'Side dish', soup: 'Soup', salad: 'Salad',
+  dessert: 'Dessert', breakfast: 'Breakfast', baking: 'Baking & bread', snack: 'Snack',
+  drink: 'Drink', other: 'Other' };
+
+// One provenance line: source type + value (linked if a URL) + book author/publisher/page + who added it.
+function sourceLine(r) {
+  const s = r.source || {};
+  const label = SOURCE_LABELS[s.type] || s.type || '';
+  let head = label ? `<b>${shopEsc(label)}</b>` : '';
+  if (s.value) {
+    const v = /^https?:/i.test(s.value)
+      ? `<a href="${shopEsc(s.value)}" target="_blank" rel="noopener">${shopEsc(s.value)}</a>`
+      : shopEsc(s.value);
+    head = head ? `${head} — ${v}` : v;
+  }
+  const extra = [];
+  if (s.author)    extra.push('by ' + shopEsc(s.author));
+  if (s.publisher) extra.push(shopEsc(s.publisher));
+  if (s.page)      extra.push('p. ' + shopEsc(s.page));
+  const enteredBy = entererLabel(r.log?.entered_by);
+  const who = enteredBy ? `Added by ${shopEsc(enteredBy)}${r.log?.entered_at ? ' · ' + shopEsc(r.log.entered_at) : ''}` : '';
+  if (!head && !extra.length && !who) return '';
+  return `<div class="recipe-source">${head ? 'Source: ' + head : ''}`
+    + `${extra.length ? `<div style="margin-top:2px;">${extra.join(' · ')}</div>` : ''}`
+    + `${who ? `<div style="margin-top:4px;">${who}</div>` : ''}</div>`;
+}
+
+async function saveMealWeek() {
+  const wk = weekKey(mealWeekStart);
+  const meals = localMealPlan[wk] || [];
+  await fetch(`${API}/meals/plan`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ weekKey: wk, meals }),
+  });
+  data.mealPlan = data.mealPlan || {};
+  data.mealPlan[wk] = meals;
+  setStatus('Meal week saved ✓', 'ok');
+}
+
+// Day-by-day event context for the week, sent to both generate and refine.
+function mealWeekSummary() {
+  const map = buildEventMap();
+  const lines = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(mealWeekStart); d.setDate(d.getDate() + i);
+    const key = d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate();
+    const evs = (map[key] || []).map(e => e.label).join(', ');
+    lines.push(`${DAYS[i]} ${fmt(d)}: ${evs || 'free'}`);
+  }
+  return lines.join('\n');
+}
+
+async function suggestMeals() {
+  if (mealWeekHasPlan() && !confirm('Regenerate the whole week? This replaces all 7 days.')) return;
+  const btn = document.getElementById('meal-suggest-btn');
+  btn.disabled = true; btn.textContent = 'Thinking…';
+  const userPrompt = document.getElementById('meal-user-prompt').value;
+  const wk = weekKey(mealWeekStart);
+  try {
+    const res = await fetch(`${API}/meals/suggest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // weekStart lets the server derive "recently served" from the week being
+      // planned, not from today — they differ whenever you plan ahead.
+      body: JSON.stringify({ weekSummary: mealWeekSummary(), userPrompt,
+                             weekStart: isoDate(mealWeekStart) }),
+    });
+    const json = await res.json();
+    localMealPlan[wk] = json.meals;
+    mealEditing.clear();
+    renderMealWeek();
+  } catch(e) {
+    alert('Could not reach the backend or the AI provider.');
+  }
+  btn.disabled = false; setSuggestBtn();
+}
+
+// Step 2 — refine the existing week (change a day or the whole week).
+async function refineMealWeek() {
+  const input = document.getElementById('meal-refine-prompt');
+  const instruction = input.value.trim();
+  if (!instruction) { alert('Type a change first'); return; }
+  const btn = document.getElementById('meal-refine-btn');
+  btn.disabled = true; btn.textContent = 'Thinking…';
+  const wk = weekKey(mealWeekStart);
+  const currentPlan = localMealPlan[wk] || (data.mealPlan || {})[wk] || [];
+  try {
+    const res = await fetch(`${API}/meals/plan/refine`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weekSummary: mealWeekSummary(), currentPlan, instruction }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const json = await res.json();
+    localMealPlan[wk] = json.meals;
+    input.value = '';
+    mealEditing.clear();
+    renderMealWeek();
+    setStatus('Plan updated ✓', 'ok');
+  } catch(e) {
+    alert('Could not reach the backend or the AI provider.');
+  }
+  btn.disabled = false; btn.textContent = 'Ask AI ↗';
+}
+
+function buildEventMap() {
+  const map = {};
+  const add = (key, ev) => { if (!map[key]) map[key] = []; map[key].push(ev); };
+  (data.birthdays || []).forEach(b => {
+    const y = new Date().getFullYear();
+    add(`${y}-${b.month}-${b.day}`, { label: b.name });
+    add(`${y+1}-${b.month}-${b.day}`, { label: b.name });
+  });
+  (data.recurring || []).forEach(r => {
+    let d = new Date(r.startDate);
+    for (let i = 0; i < 120; i++) {
+      const key = d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate();
+      add(key, { label: r.label });
+      d = new Date(d); d.setDate(d.getDate() + r.step);
+    }
+  });
+  (data.events || []).forEach(e => {
+    const d = new Date(e.date);
+    const key = d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate();
+    add(key, { label: e.label });
+  });
+  return map;
+}
+
+// ── Save all ──────────────────────────────────────────────────
+async function saveAll() {
+  collectAI();
+  if (document.getElementById('ms-enabled')) collectMailSync();
+  const btn = document.querySelector('.save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    await Promise.all([
+      fetch(`${API}/settings`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data.settings),
+      }),
+      fetch(`${API}/events`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: data.events || [], birthdays: data.birthdays || [], recurring: data.recurring || [] }),
+      }),
+    ]);
+    setStatus('All changes saved ✓', 'ok');
+  } catch(e) {
+    setStatus('Save failed — backend unreachable', 'err');
+  }
+  btn.disabled = false; btn.textContent = 'Save changes';
+}
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('save-status');
+  el.textContent = msg; el.className = 'save-status ' + cls;
+  setTimeout(() => { el.textContent = ''; el.className = 'save-status'; }, 3000);
+}
+
+// ── Shopping ──────────────────────────────────────────────────
+const SHOP_CATS = ['Produce','Bakery','Meat & Fish','Dairy & Eggs','Pantry','Spices & Seasoning','International','Frozen','Drinks','Household','Other'];
+let shopWeekStart = getMondayOf(new Date());
+let shopData = null, shopSaveTimer = null;
+let shopSelDays = new Set();   // indices into shopData.days that are in view
+function shopNorm(s) { return (s || '').trim().toLowerCase(); }
+function shopEsc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function shopWeekShift(dir) {
+  shopWeekStart = new Date(shopWeekStart);
+  shopWeekStart.setDate(shopWeekStart.getDate() + dir * 7);
+  loadShopping();
+}
+
+async function loadShopping() {
+  const wk = weekKey(shopWeekStart);
+  const end = new Date(shopWeekStart); end.setDate(end.getDate() + 6);
+  document.getElementById('shop-week-label').textContent = fmt(shopWeekStart) + ' – ' + fmt(end);
+  if (shopData && shopData.weekKey === wk) { renderShopping(); return; }  // same week: keep unsaved toggles
+  try {
+    const d = await (await fetch(`${API}/shopping/${wk}`)).json();
+    shopData = {weekKey: wk, days: d.days || [], bought: new Set(d.bought || [])};
+    shopSelDays = new Set(shopData.days.map((_, i) => i));   // all days on per load
+    renderShopping();
+  } catch (e) {
+    document.getElementById('shop-list').innerHTML = '<div class="shop-empty">Cannot load</div>';
+  }
+}
+
+// Sum an item's quantities across the selected days. Mirrors backend parse_qty
+// families (mass→g, volume→ml, spoon→tsp, count). Kept in sync with the copies
+// in frontend/mobile.html and shopping-relay/app.js.
+function fmtNum(n) { const r = Math.round(n * 100) / 100; return (Math.abs(r - Math.round(r)) < 1e-9) ? String(Math.round(r)) : String(r); }
+function pickUnit(family, v) {
+  if (family === 'mass')   return v >= 1000 ? ['kg', 1000] : ['g', 1];
+  if (family === 'volume') return v >= 1000 ? ['l', 1000] : (v >= 100 ? ['dl', 100] : ['ml', 1]);
+  if (family === 'spoon')  return v >= 48 ? ['cup', 48] : (v >= 3 ? ['tbsp', 3] : ['tsp', 1]);
+  return ['', 1];
+}
+function renderBucket(family, lo, hi, unitWord) {
+  if (family === 'count') {
+    const num = (lo === hi) ? fmtNum(lo) : `${fmtNum(lo)}–${fmtNum(hi)}`;
+    return unitWord ? `${num} ${unitWord}` : num;
+  }
+  const [u, div] = pickUnit(family, hi);
+  const num = (lo === hi) ? fmtNum(lo / div) : `${fmtNum(lo / div)}–${fmtNum(hi / div)}`;
+  return `${num} ${u}`;
+}
+// → Map(normName → {display, category, item})
+function aggregate(days, selectedIdxs) {
+  const items = new Map();
+  days.forEach((day, idx) => {
+    if (!selectedIdxs.has(idx)) return;
+    (day.ingredients || []).forEach(ing => {
+      const norm = shopNorm(ing.item);
+      if (!norm) return;
+      let e = items.get(norm);
+      if (!e) { e = {item: ing.item, category: ing.category, buckets: new Map(), raws: []}; items.set(norm, e); }
+      if (!e.category) e.category = ing.category;
+      const q = ing.qty || {};
+      if (q.family && q.lo != null) {
+        const key = q.family + '|' + (q.unit || '');
+        let b = e.buckets.get(key);
+        if (!b) { b = {family: q.family, unitWord: q.unit || '', lo: 0, hi: 0}; e.buckets.set(key, b); }
+        b.lo += q.lo; b.hi += q.hi;
+      } else {
+        const raw = [ing.amount, ing.unit].filter(Boolean).join(' ').trim();
+        if (raw && !e.raws.includes(raw)) e.raws.push(raw);
+      }
+    });
+  });
+  const out = new Map();
+  items.forEach((e, norm) => {
+    const parts = [];
+    e.buckets.forEach(b => parts.push(renderBucket(b.family, b.lo, b.hi, b.unitWord)));
+    e.raws.forEach(r => parts.push(r));
+    out.set(norm, {display: parts.join(' + '), category: e.category || 'Other', item: e.item});
+  });
+  return out;
+}
+
+async function shopPublish() {
+  const btn = document.getElementById('shop-publish-btn');
+  const st  = document.getElementById('shop-publish-status');
+  const wk  = weekKey(shopWeekStart);
+  btn.disabled = true; st.textContent = 'Publishing…'; st.style.color = 'var(--text2)';
+  try {
+    const r = await fetch(`${API}/shopping/${wk}/publish`, {method: 'POST'});
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      st.textContent = e.detail || 'Publish failed'; st.style.color = 'var(--danger)';
+    } else {
+      st.textContent = 'Sent to phone ✓'; st.style.color = 'var(--success)';
+      setTimeout(() => { st.textContent = ''; }, 2500);
+    }
+  } catch (e) {
+    st.textContent = 'Publish failed'; st.style.color = 'var(--danger)';
+  }
+  btn.disabled = false;
+}
+
+function shopSave() {
+  if (!shopData) return;
+  clearTimeout(shopSaveTimer);
+  shopSaveTimer = setTimeout(() => {
+    fetch(`${API}/shopping/${shopData.weekKey}`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({bought: [...shopData.bought]}),
+    });
+  }, 400);
+}
+
+function shopToggle(item) {
+  if (!shopData) return;
+  const k = shopNorm(item);
+  shopData.bought.has(k) ? shopData.bought.delete(k) : shopData.bought.add(k);
+  renderShopping();
+  shopSave();
+}
+
+function renderShopDayChips() {
+  const el = document.getElementById('shop-daychips');
+  if (!shopData || !shopData.days.length) { el.innerHTML = ''; return; }
+  const allOn = shopData.days.every((_, i) => shopSelDays.has(i));
+  let html = `<button type="button" class="daychip${allOn ? ' on' : ''}" data-idx="all"><span class="dc-day">All</span></button>`;
+  shopData.days.forEach((d, i) => {
+    html += `<button type="button" class="daychip${shopSelDays.has(i) ? ' on' : ''}" data-idx="${i}">
+      <span class="dc-day">${shopEsc(d.day || '·')}</span><span class="dc-name">${shopEsc(d.name || '')}</span></button>`;
+  });
+  el.innerHTML = html;
+}
+function shopChipClick(idxAttr) {
+  if (idxAttr === 'all') {
+    const allOn = shopData.days.every((_, i) => shopSelDays.has(i));
+    shopSelDays = allOn ? new Set() : new Set(shopData.days.map((_, i) => i));
+  } else {
+    const i = parseInt(idxAttr, 10);
+    shopSelDays.has(i) ? shopSelDays.delete(i) : shopSelDays.add(i);
+  }
+  renderShopping();
+}
+
+function renderShopping() {
+  if (!shopData) return;
+  renderShopDayChips();
+  const agg = aggregate(shopData.days, shopSelDays);
+
+  // Single list, grouped by category. One tick crosses an item off.
+  const byCat = {};
+  agg.forEach((v, norm) => { (byCat[v.category] = byCat[v.category] || []).push({norm, ...v}); });
+  let html = '', any = false;
+  SHOP_CATS.forEach(cat => {
+    const items = (byCat[cat] || []).sort((a, b) => a.item.localeCompare(b.item));
+    if (!items.length) return;
+    any = true;
+    html += `<div class="shop-cat">${cat}</div>`;
+    items.forEach(it => {
+      const bought = shopData.bought.has(it.norm);
+      html += `<label class="shop-row${bought ? ' bought' : ''}"><input type="checkbox" class="shop-cb" data-item="${shopEsc(it.item)}" ${bought ? 'checked' : ''} /><span class="shop-item">${shopEsc(it.item)}${it.display ? ` <span class="shop-qty">${shopEsc(it.display)}</span>` : ''}</span></label>`;
+    });
+  });
+  const listEl = document.getElementById('shop-list');
+  if (!shopData.days.length) listEl.innerHTML = '<div class="shop-empty">No meals planned this week</div>';
+  else if (!shopSelDays.size) listEl.innerHTML = '<div class="shop-empty">Select a day above to see its list</div>';
+  else listEl.innerHTML = any ? html : '<div class="shop-empty">No ingredients for the selected days</div>';
+}
+
+document.getElementById('shop-list').addEventListener('change', e => {
+  if (e.target.classList.contains('shop-cb')) shopToggle(e.target.dataset.item);
+});
+document.getElementById('shop-daychips').addEventListener('click', e => {
+  const b = e.target.closest('.daychip');
+  if (b) shopChipClick(b.dataset.idx);
+});
+
+loadData();
+connectStream();
+</script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+services:
+  family-calendar:
+    build: ./backend
+    image: family-calendar:mac
+    container_name: family-calendar
+    restart: unless-stopped
+    # Hardening (S7): non-root, read-only rootfs — only /data is writable —
+    # no privilege escalation, bounded memory/pids. Set APP_UID/APP_GID to the
+    # owner of ./data (see README).
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    pids_limit: 200
+    volumes:
+      - ./backend:/app:ro
+      - ./frontend:/frontend:ro
+      - ./data:/data
+    working_dir: /app
+    ports:
+      - "8000:8000"
+    # ⚠️ The Mac is a TEST instance (and a temporary buffer for the Inky Frame when
+    # travelling). The NAS is the single source of truth, and the only instance that
+    # talks to the outside world.
+    #
+    # SHOP_RELAY_* and MAILSYNC_* are therefore DELIBERATELY ABSENT — do not add them
+    # back "for parity". They are not inert config; each one starts a background loop
+    # that MUTATES shared state:
+    #
+    #   SHOP_RELAY_*  — publishes to the cloud relay and DRAINS its inbox. With two
+    #                   instances, a write queued from the phone is applied by
+    #                   whichever polls first, which then acks it; the other never
+    #                   sees it. The two datasets diverge silently.
+    #   MAILSYNC_*    — consumes the same mailbox as the NAS, so both would race to
+    #                   process (and mark read) the same messages.
+    #
+    # Without them the backend simply never starts those loops. Pull fresh data from
+    # the NAS on demand instead:  ./deploy data-pull
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost}
+      - EMBED_ORIGIN=${EMBED_ORIGIN:-}
+      - TZ=Europe/Stockholm

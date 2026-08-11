@@ -1,0 +1,1 @@
+- verify that when one of the target recipients are sending an invitation, same event is not being sent back to them

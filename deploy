@@ -1,0 +1,398 @@
+#!/usr/bin/env bash
+# One command, two deployment tracks. Run it on the Mac.
+#
+#   ./deploy mac      local container: build → stop → remove → recreate
+#   ./deploy nas      push .env, pin user:, render the Container Station YAML
+#   ./deploy proxy [--staging]   Caddy + Let's Encrypt (DuckDNS DNS-01) — HTTPS on the LAN
+#   ./deploy data-pull  refresh the Mac's data/ from the NAS (ssh; QSync can't carry it)
+#   ./deploy push-src    ship backend/ + frontend/ to the NAS over ssh (QSync is unreliable)
+#   ./deploy sync-check  is the NAS running the same source as this Mac?
+#   ./deploy check    health-probe both
+#
+# The tracks never collide: they build on different Docker daemons (Docker Desktop
+# here, Container Station there) from the same Dockerfile, tagged
+# family-calendar:mac and family-calendar:nas.
+#
+#   mac — builds the image, stops + removes + recreates the container, waits for
+#         /healthz. Fully automated.
+#   nas — Container Station owns the container lifecycle, so nothing can be
+#         created remotely. This pushes .env over ssh (file sync skips dotfiles),
+#         pins `user:` to the data dir's real owner, and renders the YAML to
+#         paste. You press Recreate; Container Station builds the image there.
+#
+# Why the NAS image isn't built here: this Mac is arm64, the QNAP is x86_64.
+# Cross-building and shipping ~200MB over ssh every deploy is slower and more
+# fragile than letting Container Station build natively from the synced source.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+# Real per-deployment values (NAS host, container IPs) live in .deploy.env,
+# git-ignored — see deploy.env.example. Loaded before the defaults below so it
+# can override any of them; every var also still accepts a plain shell export.
+[ -f .deploy.env ] && source .deploy.env
+
+# The app container has its own static IP on the qnet bridge (NAS_HOST), separate
+# from the NAS host itself (NAS_SSH) — don't conflate them. Both are only
+# reachable while this Mac is actually on the home LAN. Defaults below are
+# placeholders; set the real ones in .deploy.env.
+NAS_SSH="${NAS_SSH:-admin@nas.local}"
+NAS_SSH_PORT="${NAS_SSH_PORT:-22}"
+NAS_HOST="${NAS_HOST:-10.0.0.2}"
+NAS_PORT="${NAS_PORT:-8000}"
+NAS_ROOT="${NAS_ROOT:-/share/Container/family-calendar}"
+PROXY_ROOT="${PROXY_ROOT:-/share/Container/family-calendar-proxy}"
+PROXY_IP="${PROXY_IP:-10.0.0.3}"
+MAC_PORT="${MAC_PORT:-8000}"
+NAS_COMPOSE="docker-compose.nas.yml"
+OUT="deploy-out/nas-app.yml"
+
+die() { echo "✗ $*" >&2; exit 1; }
+
+require_env() { [[ -f .env ]] || die ".env is missing. Copy .env.example to .env and fill it in."; }
+
+# ssh works over the VPN or on the home LAN; QSync's cloud relay does not imply it.
+# Fail fast with a useful message rather than hanging on a dead socket.
+nas_ssh_ok() {
+  nc -z -G 5 "${NAS_SSH##*@}" "$NAS_SSH_PORT" 2>/dev/null \
+    || die "Can't reach ${NAS_SSH##*@}:${NAS_SSH_PORT}. Connect the VPN (or the home LAN) first."
+  echo "  (ssh: ${NAS_SSH}:${NAS_SSH_PORT} — set up a key with 'ssh-copy-id -p ${NAS_SSH_PORT} ${NAS_SSH}' to stop the password prompts)"
+}
+
+# ── mac ───────────────────────────────────────────────────────────────────────
+deploy_mac() {
+  echo "══ Mac ═══════════════════════════════════════════════════════"
+  require_env
+  docker info >/dev/null 2>&1 || die "Docker isn't running. Start Docker Desktop."
+
+  # The container is non-root with a read-only rootfs; only ./data is writable, so
+  # it must run as whoever owns ./data (501:20 here, not the 1000:1000 default).
+  mkdir -p data
+  export APP_UID="${APP_UID:-$(stat -f '%u' data)}"
+  export APP_GID="${APP_GID:-$(stat -f '%g' data)}"
+
+  echo "→ Building family-calendar:mac …"
+  docker compose build
+
+  echo "→ Stopping and removing the old container …"
+  docker compose down --remove-orphans
+
+  echo "→ Recreating (uid ${APP_UID}:${APP_GID}, port ${MAC_PORT}) …"
+  docker compose up -d
+
+  echo -n "→ Waiting for /healthz"
+  for _ in $(seq 1 30); do
+    if curl -fsS "http://localhost:${MAC_PORT}/healthz" >/dev/null 2>&1; then
+      echo ""
+      echo "✓ Running → http://localhost:${MAC_PORT}/admin.html"
+      return 0
+    fi
+    echo -n "."
+    sleep 1
+  done
+  echo ""
+  docker compose logs --tail 40 family-calendar >&2
+  die "Backend didn't answer /healthz within 30s (logs above)."
+}
+
+# ── nas ───────────────────────────────────────────────────────────────────────
+deploy_nas() {
+  echo "══ NAS ═══════════════════════════════════════════════════════"
+  require_env
+
+  nas_ssh_ok
+
+  # File sync skips dotfiles, so the NAS .env is stale — without this the
+  # container starts with no API key and no relay tokens. Streamed over ssh, as
+  # QNAP has no working scp/sftp. Temp file + mv: the existing .env is owned by
+  # another user so it can't be truncated in place, but it can be replaced — and
+  # mv is atomic, so there's never a half-written .env.
+  echo "→ Pushing .env to ${NAS_SSH}:${NAS_ROOT}/.env …"
+  ssh -p "$NAS_SSH_PORT" "$NAS_SSH" "cat > '${NAS_ROOT}/.env.new' && chmod 600 '${NAS_ROOT}/.env.new' \
+                  && mv -f '${NAS_ROOT}/.env.new' '${NAS_ROOT}/.env'" < .env \
+    || die "Couldn't write ${NAS_ROOT}/.env (permissions? wrong NAS_SSH?)."
+
+  local local_bytes nas_bytes owner
+  local_bytes=$(wc -c < .env | tr -d ' ')
+  nas_bytes=$(ssh -p "$NAS_SSH_PORT" "$NAS_SSH" "wc -c < '${NAS_ROOT}/.env'" | tr -d '[:space:]')
+  [[ "$local_bytes" == "$nas_bytes" ]] \
+    || die ".env didn't copy cleanly (${local_bytes} bytes here, ${nas_bytes} there)."
+  echo "  ✓ ${nas_bytes} bytes, mode 600."
+
+  # Only /data is writable, and only by the container's uid. Pin it to that
+  # directory's real owner instead of guessing 1000:1000 and crash-looping.
+  echo "→ Reading the owner of ${NAS_ROOT}/data …"
+  owner=$(ssh -p "$NAS_SSH_PORT" "$NAS_SSH" "stat -c '%u:%g' '${NAS_ROOT}/data'" | tr -d '[:space:]')
+  [[ "$owner" =~ ^[0-9]+:[0-9]+$ ]] || die "Couldn't read the data dir owner (got '${owner}')."
+  echo "  ✓ data/ is owned by ${owner} — pinning the container to it."
+
+  mkdir -p "$(dirname "$OUT")"
+  sed -E "s#^( *user: ).*#\1\"${owner}\"#
+          s#APP_IP_PLACEHOLDER#${NAS_HOST}#
+          s#PROXY_IP_PLACEHOLDER#${PROXY_IP}#" "$NAS_COMPOSE" > "$OUT"
+
+  local clip=""
+  if command -v pbcopy >/dev/null 2>&1; then pbcopy < "$OUT"; clip="  (copied to your clipboard)"; fi
+
+  cat <<EOF
+
+✓ Wrote ${OUT}${clip}
+  Secret-free — the container reads them from ${NAS_ROOT}/.env at start.
+
+  Now, in Container Station:
+    Applications → family-calendar → Recreate → select all, paste, Recreate.
+    It builds family-calendar:nas there (the first run takes a few minutes).
+    Then:  ./deploy check
+EOF
+}
+
+# ── data-pull ─────────────────────────────────────────────────────────────────
+# Refresh the Mac's data/ from the NAS, on demand. One direction only, by design:
+# the NAS is the single source of truth (it is the instance wired to the cloud
+# relay and to mailsync), and the Mac is a test box — plus, while travelling, a
+# temporary server for the Inky Frame. There is deliberately no data-push: the Mac
+# must never overwrite the truth. QSync can't carry data/ (it gets Access denied on
+# the dirs the container owns), so this goes over ssh.
+deploy_data_pull() {
+  echo "══ NAS → data ════════════════════════════════════════════════"
+  nas_ssh_ok
+
+  local stamp bak nas_recipes was_running=0
+  nas_recipes=$(ssh -p "$NAS_SSH_PORT" "$NAS_SSH" "ls '${NAS_ROOT}/data/recipes'/*.json 2>/dev/null | wc -l" | tr -d '[:space:]')
+  echo "→ About to REPLACE this Mac's data/ with the NAS copy (${nas_recipes} recipe files)."
+  echo "  Continue? [y/N]"
+  read -r reply
+  [[ "$reply" == "y" || "$reply" == "Y" ]] || die "Aborted."
+
+  # Stop the container ourselves: we swap the whole data/ directory (see below), and
+  # a bind mount would keep pointing at the old inode. Restarted at the end only if
+  # it was running when we started — don't surprise anyone by booting it.
+  if docker ps --filter name=family-calendar --format '{{.Names}}' | grep -q .; then
+    was_running=1
+    echo "→ Stopping the Mac container …"
+    docker compose down --remove-orphans >/dev/null 2>&1
+  fi
+
+  stamp=$(date +%Y%m%d-%H%M%S)
+  bak="${HOME}/family-calendar-data-backup-${stamp}"
+  if [[ -d data ]]; then
+    echo "→ Backing up the Mac's data/ to ${bak} …"
+    cp -a data "$bak" || die "Backup failed. Stopping — nothing was overwritten."
+  fi
+
+  # Extract into a fresh dir and SWAP, rather than untarring over the live tree.
+  # `tar -x` only overlays — it never deletes — so an overlay would leave behind
+  # anything since removed on the NAS. That matters: rebuild_recipe_index() globs
+  # every *.json under data/recipes/, so a recipe deleted at home would rise from
+  # the dead here. Swapping makes the pull a true mirror.
+  echo "→ Streaming the NAS data/ over ssh …"
+  rm -rf data.new
+  mkdir -p data.new
+  ssh -p "$NAS_SSH_PORT" "$NAS_SSH" "cd '${NAS_ROOT}' && tar -czf - data" \
+    | tar -xzf - --no-same-owner -C data.new --strip-components=1 \
+    || { rm -rf data.new; die "Transfer failed. data/ untouched; backup at ${bak}"; }
+
+  local got
+  got=$(ls data.new/recipes/*.json 2>/dev/null | wc -l | tr -d ' ')
+  [[ "$got" == "$nas_recipes" ]] \
+    || { rm -rf data.new; die "Recipe count mismatch (${nas_recipes} there, ${got} pulled). data/ untouched; backup at ${bak}"; }
+
+  rm -rf data
+  mv data.new data
+  echo "  ✓ ${got} recipe files pulled (exact mirror — stale files removed)."
+  [[ -d "$bak" ]] && echo "  Backup kept at ${bak}"
+
+  if (( was_running )); then
+    echo "→ Restarting the Mac container …"
+    deploy_mac
+  fi
+
+  cat <<EOF
+
+  Leave the NAS app RUNNING — it stays the source of truth and the only instance
+  wired to the relay and mailsync. This Mac has neither (see docker-compose.yml),
+  so the two can't fight; the Mac's copy simply goes stale until you pull again.
+
+  Anything you change on the Mac is TEST DATA and will be overwritten by the next
+  pull. Real edits belong in the NAS app (or the phone, via the relay).
+
+  Serving the Inky from here? Point NAS_URL in _inkyframe/network_fetch.py at this
+  Mac — currently $(grep -o 'http://[0-9.]*:8000' _inkyframe/network_fetch.py | head -1).
+  It's a raw IP, so it changes on every network you join. Back home, set it to
+  http://${NAS_HOST}:${NAS_PORT}/display-data again.
+EOF
+}
+
+# ── push-src ──────────────────────────────────────────────────────────────────
+# Ship backend/ + frontend/ to the NAS over ssh, because QSync cannot be trusted to.
+# It has now failed five distinct ways: .env left two months stale; data/recipes/
+# never delivered (Access denied); backend/tests/ likewise; a main.py frozen between
+# two edits (the route called a function whose import line hadn't arrived, so the app
+# booted fine and raised NameError only on the one code path); and then it ignored a
+# touch. Source is the one thing that MUST be exact — so send it ourselves.
+#
+# Same mechanism as .env and data/: tar over the ssh connection (QNAP has no scp).
+deploy_push_src() {
+  echo "══ source → NAS ══════════════════════════════════════════════"
+  nas_ssh_ok
+
+  echo "→ Streaming backend/ + frontend/ over ssh …"
+  # __pycache__ excluded: stale .pyc files are pure liability, and /app is read-only
+  # in the container so Python can't rewrite them anyway.
+  COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -czf - \
+      --exclude '__pycache__' --exclude '.DS_Store' --exclude '._*' \
+      backend frontend 2>/dev/null \
+    | ssh -p "$NAS_SSH_PORT" "$NAS_SSH" \
+        "cd '${NAS_ROOT}' && tar -xzf - --overwrite --no-same-owner" \
+    || die "Couldn't ship the source."
+
+  # tar OVERLAYS — it never deletes. So a module removed here would live on forever
+  # on the NAS, and a stale Python file is worse than a missing one: it still
+  # imports. Send a manifest of what should exist and delete everything else, which
+  # makes the push a true mirror. (The directories themselves are left alone: they're
+  # bind-mounted into the running container, so replacing the inode would strand it.)
+  echo "→ Removing files that no longer exist here …"
+  find backend frontend -type f \( -name '*.py' -o -name '*.html' \) \
+       -not -path '*__pycache__*' | sort \
+    | ssh -p "$NAS_SSH_PORT" "$NAS_SSH" "
+        cd '${NAS_ROOT}' || exit 1
+        cat > /tmp/fc_manifest
+        find backend frontend -type f \( -name '*.py' -o -name '*.html' \) \
+             -not -path '*__pycache__*' | sort > /tmp/fc_have
+        stale=\$(comm -23 /tmp/fc_have /tmp/fc_manifest)
+        if [ -n \"\$stale\" ]; then echo \"\$stale\" | while read -r f; do echo \"    rm \$f\"; rm -f \"\$f\"; done; fi
+        # QSync left __pycache__ trees behind; a stale .pyc is only ever a liability.
+        find backend frontend -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null
+        rm -f /tmp/fc_manifest /tmp/fc_have" \
+    || die "Couldn't prune stale files on the NAS."
+
+  echo "→ Verifying …"
+  deploy_sync_check || die "Source still differs after the push — that shouldn't happen."
+  echo ""
+  echo "  Now Restart the app in Container Station (Python is loaded at process start,"
+  echo "  so a bind-mounted file change needs a restart to take effect)."
+}
+
+# ── sync-check ────────────────────────────────────────────────────────────────
+# QSync is the weak link in this setup and has failed three distinct ways: it left
+# .env two months stale, it never delivered data/recipes/ at all (Access denied),
+# and it once shipped a main.py caught between two edits — the route called a
+# function whose import line hadn't arrived yet, so the NAS raised NameError at
+# request time rather than failing loudly at startup.
+#
+# So don't trust it: compare checksums of the source it's meant to be carrying.
+deploy_sync_check() {
+  echo "══ source drift: Mac vs NAS ══════════════════════════════════"
+  nas_ssh_ok
+
+  local remote local_sums drift=0
+  # md5 of every RUNTIME source file, path-keyed, sorted — same recipe on both sides.
+  # tests/ and __pycache__ are excluded: the NAS never runs them, and listing them
+  # just buries the one line that matters.
+  local_sums=$(find backend frontend -type f \( -name '*.py' -o -name '*.html' \) \
+                 -not -path '*__pycache__*' -not -path '*/tests/*' -print0 \
+               | xargs -0 md5 -r 2>/dev/null | awk '{print $2" "$1}' | sort)
+  remote=$(ssh -p "$NAS_SSH_PORT" "$NAS_SSH" "
+      cd '${NAS_ROOT}' && find backend frontend -type f \( -name '*.py' -o -name '*.html' \) \
+        -not -path '*__pycache__*' -not -path '*/tests/*' -exec md5sum {} + 2>/dev/null \
+      | awk '{print \$2\" \"\$1}' | sort")
+
+  while read -r path sum; do
+    [[ -n "$path" ]] || continue
+    local rsum
+    rsum=$(echo "$remote" | awk -v p="$path" '$1==p {print $2}')
+    if [[ -z "$rsum" ]]; then
+      echo "  ✗ MISSING on NAS : $path"; drift=1
+    elif [[ "$rsum" != "$sum" ]]; then
+      echo "  ✗ DIFFERS on NAS : $path"; drift=1
+    fi
+  done <<< "$local_sums"
+
+  if (( drift )); then
+    echo ""
+    echo "  QSync hasn't delivered the current source. Don't fight it:"
+    echo "      ./deploy push-src     # ships backend/ + frontend/ over ssh"
+    echo "  then Restart the app in Container Station."
+    return 1
+  fi
+  echo "  ✓ every synced .py/.html on the NAS matches this Mac."
+}
+
+# ── check ─────────────────────────────────────────────────────────────────────
+probe() {
+  local name=$1 url=$2
+  if curl -fsS --max-time 5 "${url}/healthz" >/dev/null 2>&1; then
+    echo "✓ ${name}: up → ${url}/admin.html"
+  else
+    echo "✗ ${name}: no answer at ${url}/healthz"
+    return 1
+  fi
+}
+
+# Is the padlock real? Prove the cert is trusted (curl verifies the chain), and
+# show who issued it and when it expires — the two things that tell you whether a
+# restart re-issued or reused, and whether you're on staging or production.
+check_cert() {
+  local domain
+  domain=$(grep -E '^DUCKDNS_DOMAIN=' .env 2>/dev/null | cut -d= -f2- | tr -d '"'"'"' ' || true)
+  [[ -n "$domain" ]] || return 0
+
+  if curl -fsS --max-time 8 "https://${domain}/healthz" >/dev/null 2>&1; then
+    echo "✓ HTTPS: https://${domain}/healthz — cert is VALID and trusted"
+  elif curl -fsSk --max-time 8 "https://${domain}/healthz" >/dev/null 2>&1; then
+    echo "⚠ HTTPS: answers, but the cert is NOT trusted (staging CA, or still issuing)"
+  else
+    echo "✗ HTTPS: https://${domain} not answering — proxy down, or DNS/rebind issue"
+    return 0
+  fi
+
+  echo "$(openssl s_client -connect "${domain}:443" -servername "${domain}" </dev/null 2>/dev/null \
+    | openssl x509 -noout -issuer -enddate 2>/dev/null \
+    | sed 's/^/    /')"
+}
+
+do_check() {
+  probe "Mac" "http://localhost:${MAC_PORT}" || true
+  if ! probe "NAS" "http://${NAS_HOST}:${NAS_PORT}"; then
+    echo "  ↳ ${NAS_HOST} IS reachable over the VPN when the container is running, so"
+    echo "    this usually means the Application is stopped — check Container Station."
+    echo "    Failing that, you're off the VPN/home LAN."
+  fi
+  check_cert
+}
+
+# ── main ──────────────────────────────────────────────────────────────────────
+# The synced copy of this script also lands on the NAS, where running it makes no
+# sense: no clipboard, and Container Station owns the lifecycle.
+if [[ -d "$NAS_ROOT" && "$PWD" -ef "$NAS_ROOT" ]]; then
+  die "You're on the NAS. Run ./deploy on the Mac — nothing needs to run here."
+fi
+
+usage() {
+  cat >&2 <<EOF
+Usage: ./deploy <command>          (see DEPLOY.md)
+
+  mac                  build + recreate the local container, wait for /healthz
+  push-src             ship backend/ + frontend/ to the NAS over ssh (then Restart)
+  nas                  push .env, pin user:, render the YAML for Container Station
+  proxy [--staging]    ship the Caddy/HTTPS assets (then Restart)
+  data-pull            refresh this Mac's data/ from the NAS (one direction only)
+  sync-check           is the NAS running the same source as this Mac?
+  check                health-probe both + verify the TLS cert
+
+There is no default: the commands target different machines, and a bare './deploy'
+that shipped .env but NOT the source would be a trap.
+EOF
+  exit 1
+}
+
+case "${1:-}" in
+  mac)        deploy_mac ;;
+  nas)        deploy_nas ;;
+  proxy)      deploy_proxy "${2:-}" ;;
+  push-src)   deploy_push_src ;;
+  data-pull)  deploy_data_pull ;;
+  sync-check) deploy_sync_check ;;
+  check)      do_check ;;
+  *)          usage ;;
+esac

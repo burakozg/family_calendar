@@ -1,0 +1,23 @@
+# TLS termination for the home app, so the relay PWA's "AI content" tab can
+# iframe it (an https page can't embed http — mixed content — and iOS won't
+# tolerate a self-signed cert).
+#
+# The hostname is public (DuckDNS) but resolves to a private LAN IP, and the
+# certificate is obtained via DNS-01. Net effect: a browser-trusted padlock on
+# the LAN, with zero ports forwarded and nothing reachable from outside.
+#
+# Domain and upstream come from the environment (see .env, written by
+# `./deploy proxy`), so this file holds no secrets and no site-specific names.
+#
+# There is deliberately NO `ca` directive: Caddy defaults to the production
+# Let's Encrypt CA. `./deploy proxy --staging` inserts one pointing at the staging
+# CA before shipping this file. Do not reintroduce `ca {$ACME_CA}` — an unset
+# variable expands to nothing, leaving a bare `ca` that Caddy refuses to parse,
+# and env_file is only read when a container is CREATED, so a Restart won't
+# populate it.
+{$DUCKDNS_DOMAIN} {
+	tls {
+		dns duckdns {env.DUCKDNS_TOKEN}
+	}
+	reverse_proxy {$BACKEND_ADDR}
+}

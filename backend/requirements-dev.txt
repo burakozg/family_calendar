@@ -1,0 +1,2 @@
+# Test dependencies (on top of requirements.txt). Run: ./run-tests.sh
+pytest==9.1.1

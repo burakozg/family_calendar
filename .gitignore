@@ -1,0 +1,25 @@
+# Secrets — never commit (see .env.example / _inkyframe/secrets.py.example)
+.env
+_inkyframe/secrets.py
+
+# Local deploy config (real NAS host/IPs — see deploy.env.example)
+.deploy.env
+
+# Runtime data (bind-mounted into the container)
+data/
+backend/data/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS / QNAP sync artifacts
+.DS_Store
+Icon?
+.qsyncclient/
+
+# Local tooling
+.claude/
+
+# Rendered Container Station YAML (./deploy nas)
+deploy-out/

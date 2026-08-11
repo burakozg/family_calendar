@@ -1,0 +1,8 @@
+# Backend dependencies — pinned so a restart can never pull a breaking release.
+# Versions verified against PyPI on 2026-07-05. Bump deliberately, not implicitly.
+fastapi==0.139.0
+uvicorn==0.50.0
+httpx==0.28.1
+python-dotenv==1.2.2
+icalendar==7.2.0
+python-dateutil==2.9.0.post0

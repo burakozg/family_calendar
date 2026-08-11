@@ -1,0 +1,1371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title id="page-title">Family Calendar</title>
+<style>
+:root {
+  --bg: #f5f4f0; --surface: #fff; --surface2: #eeece7;
+  --border: #e0dcd4; --text: #1a1815; --text2: #6b6560; --text3: #a09880;
+  --accent: #2d6be4; --accent-bg: #eef3fd;
+  --danger: #d94040; --success: #2a8a4a;
+  --radius: 14px; --radius-sm: 8px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:16px;min-height:100vh;padding-bottom:80px;}
+.tabbar{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom);}
+.tabbar-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 0 8px;font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;gap:3px;}
+.tabbar-btn.active{color:var(--accent);}
+.tabbar-btn svg{width:22px;height:22px;}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 16px 12px;position:sticky;top:0;z-index:50;}
+.header h1{font-size:20px;font-weight:700;letter-spacing:-0.02em;}
+.header p{font-size:13px;color:var(--text2);margin-top:2px;}
+.panel{display:none;padding:16px;}.panel.active{display:block;}
+/* Embed mode (?view=meals): the relay app iframes this page into its AI tab, and
+   already has its own Events/Meals/Recipes/Browse/Shopping tabs. Show only what
+   the relay CANNOT do — the AI weekly planner — and drop our chrome so there
+   aren't two headers and two tab bars stacked on top of each other. */
+body.embed{padding-bottom:16px;}
+body.embed .header,
+body.embed .tabbar{display:none;}
+.card{background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:12px;overflow:hidden;}
+.card-header{padding:14px 16px 10px;border-bottom:1px solid var(--border);}
+.card-header h2{font-size:15px;font-weight:600;}
+.card-body{padding:14px 16px;}
+.field{margin-bottom:14px;}.field:last-child{margin-bottom:0;}
+.field label{display:block;font-size:13px;font-weight:500;color:var(--text2);margin-bottom:6px;}
+.field input,.field select,.field textarea{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:16px;color:var(--text);background:var(--surface);font-family:inherit;appearance:none;}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--accent);}
+.field textarea{resize:none;height:72px;}
+.person-selector{display:flex;gap:8px;flex-wrap:wrap;}
+.person-btn{flex:1;min-width:60px;padding:10px 6px;border-radius:var(--radius-sm);border:2px solid var(--border);font-size:14px;font-weight:600;cursor:pointer;background:var(--surface);color:var(--text2);text-align:center;transition:all 0.15s;}
+.icon-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;}
+.icon-btn{aspect-ratio:1;border-radius:var(--radius-sm);border:2px solid var(--border);background:var(--surface2);font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.icon-btn.selected{border-color:var(--accent);background:var(--accent-bg);}
+.submit-btn{width:100%;padding:15px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-size:16px;font-weight:600;cursor:pointer;margin-top:4px;}
+.submit-btn:disabled{opacity:0.5;}
+.save-btn{width:100%;padding:14px;background:var(--success);color:#fff;border:none;border-radius:var(--radius);font-size:15px;font-weight:600;cursor:pointer;margin-top:8px;}
+.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#1a1815;color:#fff;padding:10px 20px;border-radius:20px;font-size:14px;font-weight:500;opacity:0;transition:opacity 0.2s;pointer-events:none;white-space:nowrap;z-index:200;}
+.toast.show{opacity:1;}
+.event-list{display:flex;flex-direction:column;gap:6px;}
+.event-item{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface2);border-radius:var(--radius-sm);border:1px solid var(--border);}
+.event-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.event-info{flex:1;}
+.event-name{font-size:14px;font-weight:500;}
+.event-meta{font-size:12px;color:var(--text3);margin-top:1px;}
+.event-del{background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;padding:4px;}
+.meal-week-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.week-nav-btn{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 14px;font-size:18px;cursor:pointer;}
+.week-label{font-size:14px;font-weight:600;color:var(--text2);}
+.week-toggle{display:flex;gap:5px;background:var(--surface2);padding:4px;border-radius:var(--radius-sm);margin-bottom:8px;}
+.wk-btn{flex:1;padding:11px 0;border:none;background:none;border-radius:var(--radius-sm);font-size:14px;font-weight:600;color:var(--text2);cursor:pointer;}
+.wk-btn.active{background:var(--surface);color:var(--accent);box-shadow:0 1px 3px rgba(0,0,0,0.08);}
+.week-sub{font-size:13px;color:var(--text3);text-align:center;margin-bottom:2px;}
+.week-status{font-size:12px;color:var(--text2);text-align:center;margin-bottom:12px;}
+.meal-day-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:8px;}
+.meal-day-card.today-card{border-color:var(--accent);}
+.meal-day-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:8px;}
+.meal-day-card.today-card .meal-day-label{color:var(--accent);}
+.meal-input{width:100%;border:none;background:none;font-size:15px;font-weight:500;color:var(--text);font-family:inherit;padding:0;margin-bottom:4px;}
+.meal-input:focus{outline:none;}
+.meal-notes-input{width:100%;border:none;background:none;font-size:13px;color:var(--text2);font-family:inherit;padding:0;resize:none;height:34px;}
+.meal-notes-input:focus{outline:none;}
+.meal-linked-row{display:flex;align-items:center;gap:8px;}
+.meal-recipe-link{flex:1;text-align:left;background:none;border:none;padding:0;font-family:inherit;font-size:15px;font-weight:600;color:var(--accent);cursor:pointer;display:flex;align-items:center;gap:4px;}
+.meal-recipe-link .link-caret{color:var(--text3);font-weight:700;}
+.meal-day-actions{display:flex;gap:2px;flex-shrink:0;}
+.meal-icon-btn{background:none;border:none;color:var(--text3);font-size:14px;cursor:pointer;padding:4px 6px;line-height:1;}
+.meal-notes-static{font-size:13px;color:var(--text2);margin-top:4px;line-height:1.4;}
+/* Recipe viewer sheet */
+.recipe-modal{position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:300;display:none;align-items:flex-end;}
+.recipe-modal.show{display:flex;}
+.recipe-sheet{background:var(--surface);width:100%;max-height:88vh;overflow-y:auto;border-radius:var(--radius) var(--radius) 0 0;padding:0 16px 32px;}
+.recipe-sheet-head{position:sticky;top:0;background:var(--surface);display:flex;justify-content:flex-end;padding:12px 0 4px;}
+.recipe-close{background:var(--surface2);border:none;width:32px;height:32px;border-radius:50%;font-size:16px;cursor:pointer;color:var(--text2);}
+.recipe-title{font-size:20px;font-weight:700;margin:0 0 6px;}
+.recipe-desc{font-size:14px;color:var(--text2);line-height:1.45;margin-bottom:12px;}
+.recipe-meta{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;}
+.recipe-chip{font-size:12px;background:var(--surface2);color:var(--text2);padding:4px 10px;border-radius:12px;}
+.recipe-h{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text3);margin:18px 0 8px;}
+.recipe-ing{display:flex;gap:8px;font-size:14px;padding:6px 0;border-bottom:1px solid var(--border);}
+.recipe-ing .amt{color:var(--text3);flex-shrink:0;min-width:72px;}
+.recipe-ing .ing-note{color:var(--text3);}
+.recipe-step{display:flex;gap:10px;font-size:14px;line-height:1.5;margin-bottom:12px;}
+.recipe-step .num{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:var(--accent-bg);color:var(--accent);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;}
+.recipe-source{font-size:13px;color:var(--text3);margin-top:18px;word-break:break-all;}
+.recipe-source a{color:var(--accent);}
+.ai-bar{display:flex;gap:8px;margin-bottom:12px;}
+.ai-input{flex:1;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:15px;font-family:inherit;background:var(--surface);}
+.ai-btn{padding:12px 14px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.ai-btn.secondary{background:var(--surface);color:var(--text2);border:1.5px solid var(--border);font-size:13px;padding:10px 12px;}
+.meal-standing{font-size:12px;color:var(--text2);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:8px;white-space:pre-wrap;line-height:1.4;}
+.meal-standing b{color:var(--text3);font-weight:600;}
+.ai-btn:disabled{opacity:0.5;}
+.empty{color:var(--text3);font-size:14px;text-align:center;padding:14px 0;}
+.section-label{font-size:13px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 8px;}
+/* Recipe scan */
+.scan-btns{display:flex;gap:10px;}
+.scan-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-width:0;padding:24px 14px;background:var(--accent-bg);color:var(--accent);border:2px dashed var(--accent);border-radius:var(--radius);font-size:15px;font-weight:600;text-align:center;cursor:pointer;}
+.scan-btn .big{font-size:32px;}
+.scan-hint{font-size:13px;color:var(--text3);text-align:center;margin-top:12px;line-height:1.4;}
+.scan-status{text-align:center;padding:40px 20px;color:var(--text2);font-size:15px;line-height:1.5;}
+.scan-photo{width:100%;max-height:220px;object-fit:cover;border-radius:var(--radius-sm);margin-bottom:14px;}
+.dup-banner{background:#fdeaea;border:1px solid var(--danger);color:var(--text);border-radius:var(--radius-sm);padding:10px 12px;font-size:13px;line-height:1.5;margin-bottom:14px;}
+.dup-btn{display:inline-block;margin:4px 6px 0 0;padding:5px 12px;background:var(--danger);color:#fff;border:none;border-radius:var(--radius-sm);font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;}
+.frow{margin-bottom:12px;}
+.frow>label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--text2);margin-bottom:6px;text-transform:capitalize;}
+.frow .fval{width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:15px;color:var(--text);background:var(--surface);font-family:inherit;appearance:none;}
+.frow .fval:focus{outline:none;border-color:var(--accent);}
+.frow textarea.fval{resize:none;height:64px;}
+.frow.off .fval{opacity:0.4;}
+.badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:0.03em;}
+.badge.extracted{background:var(--success);color:#fff;}
+.badge.suggested{background:#f59e0b;color:#fff;}
+.badge.empty{background:var(--surface2);color:var(--text3);}
+.accept-wrap{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;}
+.accept-wrap input{width:17px;height:17px;}
+/* Shopping */
+.shop-cat{font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin:16px 0 4px;}
+.shop-row{display:flex;align-items:center;gap:11px;padding:10px 4px;border-bottom:1px solid var(--border);font-size:15px;cursor:pointer;}
+.shop-row input{width:21px;height:21px;flex-shrink:0;}
+.shop-item{min-width:0;flex:1;}
+.shop-row.bought .shop-item{color:var(--text3);text-decoration:line-through;}
+.shop-qty{color:var(--text3);font-size:13px;}
+/* Manual extras (F9) */
+.ex-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--accent);background:var(--accent-bg);padding:1px 5px;border-radius:6px;margin-left:6px;vertical-align:middle;}
+.ex-del{flex-shrink:0;background:none;border:none;color:var(--text3);font-size:17px;line-height:1;padding:4px 6px;cursor:pointer;}
+.extra-add{display:flex;gap:8px;margin:12px 0 4px;}
+.extra-add input{flex:1;padding:11px 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:15px;font-family:inherit;background:var(--surface);color:var(--text);}
+.extra-add button{flex-shrink:0;padding:0 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);font-size:15px;font-weight:600;cursor:pointer;}
+/* Day chips (F1): filter the shopping view by day */
+.day-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;}
+.daychip{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 11px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text2);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;max-width:110px;}
+.daychip.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);}
+.daychip .dc-name{font-size:10px;font-weight:500;color:var(--text3);max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.daychip.on .dc-name{color:var(--accent);}
+/* Browse tab (F3) */
+.browse-filters input,.browse-filters select{width:100%;padding:11px 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:15px;font-family:inherit;background:var(--surface);color:var(--text);appearance:none;}
+.browse-selects{display:flex;gap:8px;margin-top:8px;}
+.browse-selects select{flex:1;min-width:0;}
+.br-row{display:flex;align-items:center;gap:10px;padding:11px 4px;border-bottom:1px solid var(--border);cursor:pointer;}
+.br-row .br-nm{font-weight:600;flex:1;min-width:0;}
+.br-row .br-meta{font-size:12px;color:var(--text3);flex-shrink:0;white-space:nowrap;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1 id="app-name">🏠 Family Calendar</h1>
+  <p id="header-sub">Loading…</p>
+</div>
+<div class="toast" id="toast"></div>
+
+<!-- RECIPE VIEWER (bottom sheet, opened from a linked meal) -->
+<div class="recipe-modal" id="recipe-modal" onclick="if(event.target===this)closeRecipe()">
+  <div class="recipe-sheet" id="recipe-sheet">
+    <div class="recipe-sheet-head"><button class="recipe-close" onclick="closeRecipe()">✕</button></div>
+    <div id="recipe-body"></div>
+  </div>
+</div>
+
+<!-- EVENTS TAB -->
+<div class="panel active" id="panel-event">
+  <div class="card">
+    <div class="card-header"><h2>Add event</h2></div>
+    <div class="card-body">
+      <div class="field">
+        <label>Person</label>
+        <div class="person-selector" id="person-selector"></div>
+      </div>
+      <div class="field"><label>Date</label><input type="date" id="ev-date" /></div>
+      <div class="field"><label>End date (optional, for multi-day)</label><input type="date" id="ev-end" /></div>
+      <div class="field"><label>Time (optional)</label><input type="time" id="ev-time" /></div>
+      <div class="field"><label>What</label><input type="text" id="ev-label" placeholder="e.g. Doctor appointment" /></div>
+      <div class="field">
+        <label>Icon</label>
+        <div class="icon-grid" id="icon-grid"></div>
+        <input type="hidden" id="ev-icon" value="meeting" />
+      </div>
+      <button class="submit-btn" onclick="addEvent()">Add event</button>
+    </div>
+  </div>
+  <div class="section-label">Upcoming events</div>
+  <div class="card"><div class="card-body"><div class="event-list" id="event-list"></div></div></div>
+</div>
+
+<!-- MEALS TAB -->
+<div class="panel" id="panel-meals">
+  <div class="week-toggle">
+    <button class="wk-btn active" id="wk-this" onclick="selectWeek(0)">This week</button>
+    <button class="wk-btn" id="wk-next" onclick="selectWeek(1)">Next week</button>
+  </div>
+  <div class="week-sub" id="week-label"></div>
+  <div class="week-status" id="week-status"></div>
+  <div class="meal-standing" id="meal-standing" style="display:none"></div>
+  <div class="ai-bar">
+    <input class="ai-input" id="gen-prompt" placeholder="Extra guidance for this week (optional)…" />
+    <button class="ai-btn" id="gen-btn" onclick="generateWeek()">Generate ✨</button>
+  </div>
+  <div id="meal-days"></div>
+  <div class="ai-bar" style="margin-top:12px">
+    <input class="ai-input" id="refine-prompt" placeholder="Change a day or the week: 'lighter Tuesday'…" />
+    <button class="ai-btn" id="refine-btn" onclick="refineWeek()">Ask AI</button>
+  </div>
+  <div class="ai-bar" style="margin-top:8px">
+    <input class="ai-input" id="newrecipe-prompt" placeholder="Ask AI to invent a new recipe…" />
+    <button class="ai-btn" id="newrecipe-btn" onclick="createRecipeIdea()">+ Recipe</button>
+  </div>
+  <button class="save-btn" onclick="saveMeals()">Save week</button>
+</div>
+
+<!-- RECIPES TAB -->
+<div class="panel" id="panel-recipes">
+  <div id="scan-launch">
+    <div class="field" style="margin-bottom:12px;">
+      <label style="font-size:12px;color:var(--text3);">Added by</label>
+      <select id="recipe-who" onchange="localStorage.setItem('recipe_who', this.value)" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:15px;font-family:inherit;background:var(--surface);appearance:none;"></select>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);margin-bottom:12px;cursor:pointer;">
+      <input type="checkbox" id="recipe-translate" style="width:auto;" />
+      Translate to English (default: keep the original language)
+    </label>
+    <div class="scan-btns">
+      <label class="scan-btn">
+        <span class="big">📷</span>
+        Scan a recipe
+        <input type="file" id="scan-file" accept="image/*" capture="environment" hidden onchange="extractRecipe(this.files[0])" />
+      </label>
+      <label class="scan-btn">
+        <span class="big">🖼</span>
+        Upload a photo
+        <input type="file" id="upload-file" accept="image/*" hidden onchange="extractRecipe(this.files[0])" />
+      </label>
+    </div>
+    <div class="scan-hint">Snap a cookbook page or recipe card, or upload a screenshot / photo from your gallery. AI reads the fields — you approve anything it suggests before saving. Fine-tune amounts later in the admin page.</div>
+    <div class="section-label" style="text-align:center;margin:16px 0 8px">or import from a link</div>
+    <div class="card"><div class="card-body">
+      <div class="field"><textarea id="import-input" style="height:88px" placeholder="Paste a recipe link — a website or an Instagram reel — or the full recipe text…"></textarea></div>
+      <button class="submit-btn" id="import-btn" onclick="importRecipeText()">Import recipe</button>
+      <div class="scan-hint" style="margin-top:10px">Works with recipe sites and Instagram reels that have the recipe in the caption. Recipes are kept in their original language. If a reel's recipe isn't in the caption, paste the caption text here instead.</div>
+    </div></div>
+  </div>
+  <div class="scan-status" id="scan-status" style="display:none"></div>
+  <div id="review"></div>
+</div>
+
+<!-- SHOPPING TAB (F1: merged Have + Shopping) -->
+<div class="panel" id="panel-shopping">
+  <div class="week-toggle">
+    <button class="wk-btn active" id="shop-wk-this" onclick="shopSelectWeek(0)">This week</button>
+    <button class="wk-btn" id="shop-wk-next" onclick="shopSelectWeek(1)">Next week</button>
+  </div>
+  <div id="shop-daychips" class="day-chips"></div>
+  <div class="section-label">Shopping list</div>
+  <div class="scan-hint" style="margin:-2px 0 8px">Tick items you’ve bought — or already have at home — to cross them off.</div>
+  <div id="shop-list"></div>
+  <div class="extra-add">
+    <input type="text" id="shop-extra-input" placeholder="Add an extra item (e.g. batteries)" autocomplete="off" />
+    <button type="button" id="shop-extra-add">Add</button>
+  </div>
+  <button class="save-btn" id="shop-publish-btn" onclick="shopPublish()" style="background:var(--accent)">📲 Publish to phone</button>
+</div>
+
+<!-- BROWSE TAB (F3) -->
+<div class="panel" id="panel-browse">
+  <div class="browse-filters">
+    <input type="text" id="br-q" placeholder="Search name, ingredient, tag, equipment…" oninput="renderBrowse()" />
+    <div class="browse-selects">
+      <select id="br-course" onchange="renderBrowse()"></select>
+      <select id="br-cuisine" onchange="renderBrowse()"></select>
+    </div>
+  </div>
+  <div class="section-label" id="br-count"></div>
+  <div id="br-results"></div>
+</div>
+
+<!-- TAB BAR -->
+<div class="tabbar">
+  <button class="tabbar-btn active" onclick="showTab('event',this)">
+    <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="17" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 2v4M16 2v4M3 10h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    Events
+  </button>
+  <button class="tabbar-btn" onclick="showTab('meals',this)">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M6 3v7c0 2.2 1.8 4 4 4h.5M18 3v4M18 7c0 2-1.5 3-3 3s-3-1-3-3M12 14v7M9 21h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Meals
+  </button>
+  <button class="tabbar-btn" onclick="showTab('recipes',this)">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M5 4a1 1 0 011-1h11a1 1 0 011 1v16a1 1 0 01-1 1H7a2 2 0 01-2-2V4z" stroke="currentColor" stroke-width="1.7"/><path d="M9 3v18M12 8h4M12 12h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    Recipes
+  </button>
+  <button class="tabbar-btn" onclick="showTab('browse',this)">
+    <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/><path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    Browse
+  </button>
+  <button class="tabbar-btn" onclick="showTab('shopping',this)">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M4 5h2l2.5 11h9l2-8H7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="20" r="1.3" fill="currentColor"/><circle cx="17" cy="20" r="1.3" fill="currentColor"/></svg>
+    Shopping
+  </button>
+</div>
+
+<script>
+const API = window.location.origin;
+// Tag every request with who's on the phone (the recipe "Added by" value), for the activity log.
+(function () {
+  const _f = window.fetch.bind(window);
+  window.fetch = (u, o = {}) => {
+    o.headers = Object.assign({ 'X-Who': (localStorage.getItem('recipe_who') || 'owner') }, o.headers || {});
+    return _f(u, o);
+  };
+})();
+const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const MONTHS_S = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const ICONS = [
+  {key:'meeting',emoji:'💬'},{key:'doctor',emoji:'🏥'},{key:'school',emoji:'🎒'},
+  {key:'football',emoji:'⚽'},{key:'swim',emoji:'🏊'},{key:'gym',emoji:'🏋'},
+  {key:'yoga',emoji:'🧘'},{key:'travel',emoji:'✈️'},{key:'bbq',emoji:'🍖'},
+  {key:'date',emoji:'❤️'},{key:'music',emoji:'🎵'},{key:'star',emoji:'⭐'},
+  {key:'run',emoji:'🏃'},{key:'cake',emoji:'🎂'},{key:'trash',emoji:'🗑'},
+  {key:'beachvolley',emoji:'🏐'},{key:'pizza',emoji:'🍕'},{key:'beer',emoji:'🍺'},
+  {key:'whisky',emoji:'🥃'},{key:'coffee',emoji:'☕'},{key:'cocktail',emoji:'🍹'},
+  {key:'car',emoji:'🚗'},{key:'broom',emoji:'🧹'},
+];
+
+let members = [], visibleIcons = null;
+let eventsData = {}, mealsData = {};
+let selectedPerson = null, selectedIcon = 'meeting';
+let mealWeekStart = getMondayOf(new Date());
+let localMeals = {};
+// Days switched to manual (free-text) editing for the current week, by day index.
+let mealEditing = new Set(), mealEditingWk = null;
+
+// Show only today onward (matching the relay); older events live in the admin Archive.
+function archiveCutoff() {
+  return new Date().toISOString().split('T')[0];
+}
+
+// ?view=<tab> opens straight into one tab with no header/tab bar. The relay's AI
+// tab uses ?view=meals to embed just the AI weekly planner — every other tab here
+// duplicates something the relay already does natively, offline and away from home.
+const EMBED_VIEW = new URLSearchParams(location.search).get('view');
+
+async function init() {
+  if (EMBED_VIEW) document.body.classList.add('embed');
+  document.getElementById('ev-date').value = new Date().toISOString().split('T')[0];
+  try {
+    const s = await fetch(`${API}/settings`).then(r => r.json());
+    members = s.members || [];
+    visibleIcons = s.eventIcons || null;
+    buildPersonSelector();
+    buildIconGrid();
+    populateRecipeWho();
+    if (members.length) selectPerson(members[0].id);
+    const appName = s.appName || 'Family Calendar';
+    document.getElementById('page-title').textContent = appName;
+    document.getElementById('app-name').textContent = '🏠 ' + appName;
+    document.getElementById('header-sub').textContent =
+      (s.familyName || 'Family') + ' · ' + new Date().toLocaleDateString('en-SE', {weekday:'long', day:'numeric', month:'long'});
+  } catch(e) {
+    document.getElementById('header-sub').textContent = 'Cannot reach backend';
+  }
+  // Shopping check-off via event delegation (survives re-render). One tick
+  // crosses an item off — whether bought or already at home.
+  document.getElementById('shop-list').addEventListener('change', e => {
+    if (e.target.classList.contains('shop-cb')) shopToggle(e.target.dataset.item);
+  });
+  document.getElementById('shop-list').addEventListener('click', e => {   // remove a manual extra (F9)
+    const b = e.target.closest('.ex-del'); if (!b) return;
+    e.preventDefault();
+    shopRemoveExtra(b.dataset.item);
+  });
+  document.getElementById('shop-extra-add').addEventListener('click', shopAddExtra);
+  document.getElementById('shop-extra-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); shopAddExtra(); }
+  });
+  await Promise.all([loadEvents(), loadMeals()]);
+  // After the data is in, so the panel renders populated rather than empty.
+  if (EMBED_VIEW) showTab(EMBED_VIEW, null);
+}
+
+// ── Person selector ───────────────────────────────────────────
+function buildPersonSelector() {
+  const container = document.getElementById('person-selector');
+  container.innerHTML = '';
+  members.forEach(m => {
+    const btn = document.createElement('button');
+    btn.className = 'person-btn';
+    btn.id = 'btn-' + m.id;
+    btn.textContent = m.label;
+    btn.onclick = () => selectPerson(m.id);
+    container.appendChild(btn);
+  });
+}
+
+function selectPerson(id) {
+  selectedPerson = id;
+  const m = members.find(x => x.id === id);
+  document.querySelectorAll('.person-btn').forEach(btn => {
+    btn.style.background = '';
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  });
+  if (m) {
+    const btn = document.getElementById('btn-' + id);
+    if (btn) {
+      btn.style.background = m.bg;
+      btn.style.borderColor = m.bg;
+      btn.style.color = m.text;
+    }
+  }
+}
+
+// ── Icon grid ─────────────────────────────────────────────────
+function buildIconGrid() {
+  const grid = document.getElementById('icon-grid');
+  const icons = visibleIcons ? ICONS.filter(ic => visibleIcons.includes(ic.key)) : ICONS;
+  icons.forEach(ic => {
+    const btn = document.createElement('button');
+    btn.className = 'icon-btn' + (ic.key === selectedIcon ? ' selected' : '');
+    btn.textContent = ic.emoji;
+    btn.title = ic.key;
+    btn.onclick = () => {
+      selectedIcon = ic.key;
+      document.getElementById('ev-icon').value = ic.key;
+      grid.querySelectorAll('.icon-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    };
+    grid.appendChild(btn);
+  });
+}
+
+// ── Data loading ──────────────────────────────────────────────
+async function loadEvents() {
+  try {
+    eventsData = await fetch(`${API}/events`).then(r => r.json());
+    renderEventList();
+  } catch(e) { console.error('events load failed', e); }
+}
+
+async function loadMeals() {
+  try {
+    mealsData = await fetch(`${API}/meals`).then(r => r.json());
+    renderMealWeek();
+  } catch(e) { console.error('meals load failed', e); }
+  loadMealStandingPrompt();
+}
+// The standing "Weekly planning prompt" is always applied; the Generate guidance
+// box is added on top of it. Show it so it's clear what's already in effect.
+async function loadMealStandingPrompt() {
+  const el = document.getElementById('meal-standing');
+  try {
+    const p = await fetch(`${API}/meals/prompts`).then(r => r.json());
+    const txt = (p.initialPrompt || '').trim();
+    if (txt) { el.innerHTML = `<b>Always applied:</b> ${escapeHtml(txt)}`; el.style.display = 'block'; }
+    else el.style.display = 'none';
+  } catch(e) { el.style.display = 'none'; }
+}
+
+function showTab(id, btn) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tabbar-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  if (btn) btn.classList.add('active');   // embed mode switches tabs with no button
+  if (id === 'meals') renderMealWeek();
+  if (id === 'shopping') loadShopping();
+  if (id === 'browse') loadBrowse();
+}
+
+// ── Events ────────────────────────────────────────────────────
+async function addEvent() {
+  const date = document.getElementById('ev-date').value;
+  const time = document.getElementById('ev-time').value;
+  const label = document.getElementById('ev-label').value.trim();
+  const icon = document.getElementById('ev-icon').value;
+  if (!date || !label) { toast('Fill in date and name'); return; }
+  if (!selectedPerson) { toast('Select a person'); return; }
+  try {
+    const body = {date, who: selectedPerson, icon, label};
+    if (time) body.time = time;
+    const end = document.getElementById('ev-end').value;
+    if (end && end > date) body.endDate = end;
+    await fetch(`${API}/events/add`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    document.getElementById('ev-label').value = '';
+    document.getElementById('ev-time').value = '';
+    await loadEvents();
+    toast('Event added ✓');
+  } catch(e) { toast('Failed to save'); }
+}
+
+function renderEventList() {
+  const el = document.getElementById('event-list');
+  const cutoff = archiveCutoff();
+  const upcoming = (eventsData.events || []).filter(e => (e.endDate || e.date) >= cutoff).slice(0, 30);
+  el.innerHTML = '';
+  if (!upcoming.length) { el.innerHTML = '<div class="empty">No upcoming events</div>'; return; }
+  upcoming.forEach(ev => {
+    const m = members.find(x => x.id === ev.who) || {bg: '#eee', text: '#333', label: ev.who};
+    const icon = ICONS.find(x => x.key === ev.icon);
+    el.innerHTML += `<div class="event-item">
+      <div class="event-dot" style="background:${m.bg}"></div>
+      <div class="event-info">
+        <div class="event-name">${icon ? icon.emoji + ' ' : ''}${escapeHtml(ev.label)}</div>
+        <div class="event-meta">${escapeHtml(ev.date)}${ev.endDate ? ' → ' + escapeHtml(ev.endDate) : ''}${ev.time ? ' ' + escapeHtml(ev.time) : ''} · ${escapeHtml(m.label)}</div>
+      </div>
+      <button class="event-del" onclick="removeEvent('${ev.id || ''}')">×</button>
+    </div>`;
+  });
+}
+
+async function removeEvent(id) {
+  // Stable-id delete (A7): immune to the list re-sorting under a stale index.
+  await fetch(`${API}/events/by-id/${id}`, {method: 'DELETE'});
+  await loadEvents();
+  toast('Removed');
+}
+
+// ── Meals ─────────────────────────────────────────────────────
+function getMondayOf(d) {
+  const dt = new Date(d);
+  const dow = dt.getDay();
+  dt.setDate(dt.getDate() + (dow === 0 ? -6 : 1 - dow));
+  return dt;
+}
+function fmt(d) { return d.getDate() + ' ' + MONTHS_S[d.getMonth()]; }
+function weekKey(d) {
+  const dt = new Date(d); dt.setDate(dt.getDate() + 3);
+  const y = dt.getFullYear();
+  const w = Math.ceil(((dt - new Date(y, 0, 1)) / 86400000 + 1) / 7);
+  return `${y}-${String(w).padStart(2, '0')}`;
+}
+// Local (not UTC) YYYY-MM-DD — used to tell the server which week is being planned.
+function localISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function thisMonday() { return getMondayOf(new Date()); }
+function selectWeek(offset) {
+  mealWeekStart = thisMonday();
+  mealWeekStart.setDate(mealWeekStart.getDate() + offset * 7);
+  renderMealWeek();
+}
+
+function renderMealWeek() {
+  const end = new Date(mealWeekStart); end.setDate(end.getDate() + 6);
+  document.getElementById('week-label').textContent = fmt(mealWeekStart) + ' – ' + fmt(end);
+  const wk = weekKey(mealWeekStart);
+  if (wk !== mealEditingWk) { mealEditing = new Set(); mealEditingWk = wk; }
+  const plan = localMeals[wk] || (mealsData.plan || {})[wk] || [];
+  // Two-week toggle: mark This/Next active and show this week's plan status.
+  const nMon = thisMonday(); nMon.setDate(nMon.getDate() + 7);
+  document.getElementById('wk-this').classList.toggle('active', wk === weekKey(thisMonday()));
+  document.getElementById('wk-next').classList.toggle('active', wk === weekKey(nMon));
+  const hasDraft = !!localMeals[wk];
+  const hasSaved = ((mealsData.plan || {})[wk] || []).some(mm => mm && mm.name);
+  document.getElementById('week-status').textContent =
+    hasDraft ? '● Unsaved changes — tap Save week'
+             : (hasSaved ? '✓ Saved' : '○ No plan yet — tap Generate ✨');
+  const today = new Date().toISOString().split('T')[0];
+  const container = document.getElementById('meal-days');
+  container.innerHTML = '';
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(mealWeekStart); d.setDate(d.getDate() + i);
+    const dateStr = d.toISOString().split('T')[0];
+    const meal = plan[i] || {name: '', notes: ''};
+    const isToday = dateStr === today;
+    // A day linked to a recipe shows as tappable text (opens the recipe); manual
+    // and empty days keep the free-text inputs. The pencil unlinks for a manual override.
+    const linked = meal.id && meal.name && !mealEditing.has(i);
+    let inner;
+    if (linked) {
+      inner = `
+        <div class="meal-linked-row">
+          <button class="meal-recipe-link" onclick="openRecipe('${escapeHtml(meal.id)}')">
+            ${escapeHtml(meal.name)}<span class="link-caret">›</span>
+          </button>
+          <div class="meal-day-actions">
+            <button class="meal-icon-btn" title="Edit manually" onclick="editMealDay(${i})">✎</button>
+            <button class="meal-icon-btn" title="Clear" onclick="clearMealDay(${i})">✕</button>
+          </div>
+        </div>
+        ${meal.notes ? `<div class="meal-notes-static">${escapeHtml(meal.notes)}</div>` : ''}`;
+    } else {
+      inner = `
+        <input class="meal-input" placeholder="Dinner…" value="${escapeHtml(meal.name || '')}"
+          onchange="updateMeal(${i},'name',this.value)" />
+        <textarea class="meal-notes-input" placeholder="Notes…"
+          onchange="updateMeal(${i},'notes',this.value)">${escapeHtml(meal.notes || '')}</textarea>`;
+    }
+    container.innerHTML += `
+      <div class="meal-day-card ${isToday ? 'today-card' : ''}">
+        <div class="meal-day-label">${DAYS[i]} · ${fmt(d)}${isToday ? ' · Today' : ''}</div>
+        ${inner}
+      </div>`;
+  }
+  setGenBtn();
+}
+
+// Once a week is planned, the big "Generate" becomes a small "Regenerate" (with a
+// confirm) so the day/refine controls lead and the week can't be wiped by accident.
+function weekHasPlan() {
+  const wk = weekKey(mealWeekStart);
+  const plan = localMeals[wk] || (mealsData.plan || {})[wk] || [];
+  return plan.some(m => m && m.name);
+}
+function setGenBtn() {
+  const gb = document.getElementById('gen-btn'); if (!gb) return;
+  if (weekHasPlan()) { gb.textContent = '↻ Regenerate'; gb.classList.add('secondary'); }
+  else { gb.textContent = 'Generate ✨'; gb.classList.remove('secondary'); }
+}
+
+function ensureLocalWeek(wk) {
+  if (!localMeals[wk]) {
+    const existing = (mealsData.plan || {})[wk] || [];
+    localMeals[wk] = Array(7).fill(null).map((_, j) => ({...(existing[j] || {name: '', notes: ''})}));
+  }
+  return localMeals[wk];
+}
+
+function updateMeal(i, key, val) {
+  const plan = ensureLocalWeek(weekKey(mealWeekStart));
+  plan[i][key] = val;
+  // Typing a name by hand means it's no longer the linked recipe — drop the id.
+  if (key === 'name') plan[i].id = null;
+}
+
+// Switch a recipe-linked day to free-text editing (for an occasional manual override).
+function editMealDay(i) {
+  mealEditing.add(i);
+  renderMealWeek();
+}
+
+// Empty a day back to a blank manual slot.
+function clearMealDay(i) {
+  const plan = ensureLocalWeek(weekKey(mealWeekStart));
+  plan[i] = {id: null, name: '', notes: ''};
+  mealEditing.delete(i);
+  renderMealWeek();
+}
+
+async function saveMeals() {
+  const wk = weekKey(mealWeekStart);
+  const meals = localMeals[wk] || [];
+  await fetch(`${API}/meals/plan`, {
+    method: 'PATCH', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({weekKey: wk, meals}),
+  });
+  mealsData.plan = mealsData.plan || {};
+  mealsData.plan[wk] = meals;
+  delete localMeals[wk];   // committed — clear the working draft
+  renderMealWeek();
+  toast('Meals saved ✓');
+}
+
+// Build "Mon: swimming / Tue: free …" context from this week's events.
+function weekSummaryText() {
+  const map = {};
+  (eventsData.events || []).forEach(e => {
+    const d = new Date(e.date);
+    const k = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+    (map[k] = map[k] || []).push(e.label);
+  });
+  const lines = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(mealWeekStart); d.setDate(d.getDate() + i);
+    const k = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+    lines.push(`${DAYS[i]}: ${(map[k] || []).join(', ') || 'free'}`);
+  }
+  return lines.join('\n');
+}
+
+// The 7-day plan currently shown (unsaved edits included).
+function currentPlanArray() {
+  const wk = weekKey(mealWeekStart);
+  const base = localMeals[wk] || (mealsData.plan || {})[wk] || [];
+  return Array(7).fill(null).map((_, i) => ({...(base[i] || {name: '', notes: ''})}));
+}
+
+// Step 1 — generate the week's plan from the standing prompt + recipe library.
+async function generateWeek() {
+  if (weekHasPlan() && !confirm('Regenerate the whole week? This replaces all 7 days.')) return;
+  const btn = document.getElementById('gen-btn');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const res = await fetch(`${API}/meals/plan/generate`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        weekSummary: weekSummaryText(),
+        userPrompt: document.getElementById('gen-prompt').value,
+        weekStart: localISO(mealWeekStart),   // server derives "recent" from saved history
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const json = await res.json();
+    localMeals[weekKey(mealWeekStart)] = json.meals;
+    mealEditing.clear();
+    renderMealWeek();
+    toast('Week planned ✓');
+  } catch (e) { toast('AI failed'); }
+  btn.disabled = false; setGenBtn();
+}
+
+// Step 2 — ask AI to update the plan (a specific day or the whole week).
+async function refineWeek() {
+  const input = document.getElementById('refine-prompt');
+  const instruction = input.value.trim();
+  if (!instruction) { toast('Type a change first'); return; }
+  const btn = document.getElementById('refine-btn');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const res = await fetch(`${API}/meals/plan/refine`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({weekSummary: weekSummaryText(), currentPlan: currentPlanArray(), instruction}),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const json = await res.json();
+    localMeals[weekKey(mealWeekStart)] = json.meals;
+    input.value = '';
+    mealEditing.clear();
+    renderMealWeek();
+    toast('Plan updated ✓');
+  } catch (e) { toast('AI failed'); }
+  btn.disabled = false; btn.textContent = 'Ask AI';
+}
+
+// ── Recipe viewer (read-only sheet for a linked meal) ─────────
+async function openRecipe(id) {
+  const modal = document.getElementById('recipe-modal');
+  const body = document.getElementById('recipe-body');
+  body.innerHTML = '<div class="scan-status">Loading recipe…</div>';
+  modal.classList.add('show');
+  document.getElementById('recipe-sheet').scrollTop = 0;
+  let r = null;
+  try {
+    const res = await fetch(`${API}/recipes/${encodeURIComponent(id)}`);
+    if (res.ok) r = await res.json();
+  } catch (e) { /* handled below */ }
+  if (!r || !r.name) {
+    body.innerHTML = '<div class="scan-status">Recipe not found — it may have been removed.</div>';
+    return;
+  }
+  body.innerHTML = renderRecipe(r);
+}
+
+function closeRecipe() { document.getElementById('recipe-modal').classList.remove('show'); }
+
+function renderRecipe(r) {
+  const meta = [];
+  const t = (r.prep_time_min || 0) + (r.cook_time_min || 0);
+  if (t) meta.push(`⏱ ${t} min`);
+  if (r.servings) meta.push(`🍽 ${r.servings} servings`);
+  if (r.difficulty) meta.push(`Difficulty ${r.difficulty}/5`);
+  if (r.cuisine) meta.push(escapeHtml(r.cuisine));
+  const ings = (r.ingredients || []).map(ig => {
+    const amt = [ig.amount, ig.unit].filter(Boolean).join(' ');
+    const note = ig.notes ? ` <span class="ing-note">(${escapeHtml(ig.notes)})</span>` : '';
+    return `<div class="recipe-ing"><span class="amt">${escapeHtml(amt)}</span><span>${escapeHtml(ig.item)}${note}</span></div>`;
+  }).join('');
+  const steps = (r.steps || []).map((s, idx) =>
+    `<div class="recipe-step"><span class="num">${idx + 1}</span><span>${escapeHtml(s.text)}</span></div>`).join('');
+  return `
+    <h2 class="recipe-title">${escapeHtml(r.name)}</h2>
+    ${r.description ? `<div class="recipe-desc">${escapeHtml(r.description)}</div>` : ''}
+    ${meta.length ? `<div class="recipe-meta">${meta.map(m => `<span class="recipe-chip">${m}</span>`).join('')}</div>` : ''}
+    ${ings ? `<div class="recipe-h">Ingredients</div>${ings}` : ''}
+    ${steps ? `<div class="recipe-h">Steps</div>${steps}` : ''}
+    ${r.notes ? `<div class="recipe-h">Notes</div><div class="recipe-desc">${escapeHtml(r.notes)}</div>` : ''}
+    ${sourceLine(r)}`;
+}
+
+const SOURCE_LABELS = { url: 'Website', instagram: 'Instagram', book: 'Book', magazine: 'Magazine',
+  person: 'Person', text: 'Pasted text', photo: 'Photo scan', notion: 'Notion', ai: 'AI generated',
+  memory: 'Family / memory', handwritten: 'Handwritten', unknown: 'Unknown' };
+
+// Recipe attribution is a fixed set (not the calendar members) — who entered
+// it, limited to the two adult roles ('owner', 'spouse'), plus Unknown.
+const RECIPE_ENTERER_IDS = ['owner', 'spouse'];
+function recipeEnterers() {
+  const list = (members || []).filter(m => RECIPE_ENTERER_IDS.includes(m.id)).map(m => ({ id: m.id, label: m.label }));
+  list.push({ id: 'unknown', label: 'Unknown' });
+  return list;
+}
+const entererLabel = id => id === 'unknown' ? 'Unknown' : ((members || []).find(m => m.id === id)?.label || '');
+
+// Provenance line: source type + value (linked if a URL) + book author/publisher/page + who added it.
+function sourceLine(r) {
+  const s = r.source || {};
+  const label = SOURCE_LABELS[s.type] || s.type || '';
+  let head = label ? `<b>${escapeHtml(label)}</b>` : '';
+  if (s.value) {
+    const v = /^https?:/i.test(s.value)
+      ? `<a href="${escapeHtml(s.value)}" target="_blank" rel="noopener">${escapeHtml(s.value)}</a>`
+      : escapeHtml(s.value);
+    head = head ? `${head} — ${v}` : v;
+  }
+  const extra = [];
+  if (s.author)    extra.push('by ' + escapeHtml(s.author));
+  if (s.publisher) extra.push(escapeHtml(s.publisher));
+  if (s.page)      extra.push('p. ' + escapeHtml(s.page));
+  const enteredBy = entererLabel(r.log?.entered_by);
+  const who = enteredBy ? `Added by ${escapeHtml(enteredBy)}${r.log?.entered_at ? ' · ' + escapeHtml(r.log.entered_at) : ''}` : '';
+  if (!head && !extra.length && !who) return '';
+  return `<div class="recipe-source">${head ? 'Source: ' + head : ''}`
+    + `${extra.length ? `<div style="margin-top:2px;">${extra.join(' · ')}</div>` : ''}`
+    + `${who ? `<div style="margin-top:4px;">${who}</div>` : ''}</div>`;
+}
+
+// ── Recipe scan (AI vision) ───────────────────────────────────
+const SCAN_FIELDS = [
+  {key:'name', type:'text'}, {key:'description', type:'area'},
+  {key:'cuisine', type:'text'}, {key:'tags', type:'list'},
+  {key:'meal_type', type:'list'}, {key:'dietary', type:'list'},
+  {key:'equipment', type:'list'},
+  {key:'servings', type:'text'}, {key:'difficulty', type:'text'},
+  {key:'prep_time_min', type:'text'}, {key:'cook_time_min', type:'text'},
+  {key:'notes', type:'area'},
+];
+let scanDraft = null, scanPhotoId = null, scanIngredients = [], scanSteps = [], scanMatches = [];
+let scanSource = {type: 'photo', value: ''};
+
+function whoDefault() {
+  const sel = document.getElementById('recipe-who');
+  if (sel && sel.value) return sel.value;
+  const saved = localStorage.getItem('recipe_who');
+  if (saved && recipeEnterers().some(e => e.id === saved)) return saved;
+  return 'owner';
+}
+function populateRecipeWho() {
+  const sel = document.getElementById('recipe-who');
+  if (!sel) return;
+  sel.innerHTML = recipeEnterers().map(e => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.label)}</option>`).join('');
+  const saved = localStorage.getItem('recipe_who');
+  sel.value = (saved && recipeEnterers().some(e => e.id === saved)) ? saved : 'owner';
+}
+// Turn the AI's per-field source object (from a photo) into a plain source for saving.
+function sourceFromDraft(draft) {
+  const s = unwrap(draft.source).value;
+  if (!s || typeof s !== 'object') return null;
+  const g = k => { const v = unwrap(s[k]).value; return v == null ? '' : String(v); };
+  const type = g('type');
+  return { type: (type && type !== 'unknown') ? type : 'photo',
+    value: g('value'), author: g('author'), publisher: g('publisher'), page: g('page') };
+}
+function escapeHtml(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+// The AI wraps values as {value, source}; unwrap defensively in case it returns a bare value.
+function unwrap(f) {
+  if (f && typeof f === 'object' && 'value' in f && 'source' in f) return f;
+  const empty = f == null || f === '' || (Array.isArray(f) && !f.length);
+  return {value: f, source: empty ? 'empty' : 'extracted'};
+}
+function toBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(',')[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+async function extractRecipe(file) {
+  if (!file) return;
+  document.getElementById('scan-launch').style.display = 'none';
+  document.getElementById('review').innerHTML = '';
+  const status = document.getElementById('scan-status');
+  status.style.display = 'block';
+  status.onclick = null;
+  status.textContent = '📸 Reading recipe… this can take ~20s';
+  try {
+    const b64 = await toBase64(file);
+    const res = await fetch(`${API}/recipes/extract`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({image: b64, media_type: file.type || 'image/jpeg', who: whoDefault(),
+                            translate: !!document.getElementById('recipe-translate')?.checked}),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const json = await res.json();
+    scanDraft = json.draft; scanPhotoId = json.photo_id; scanMatches = json.matches || [];
+    scanSource = sourceFromDraft(scanDraft) || {type: 'photo', value: ''};
+    scanIngredients = unwrap(scanDraft.ingredients).value || [];
+    scanSteps = unwrap(scanDraft.steps).value || [];
+    status.style.display = 'none';
+    renderReview(URL.createObjectURL(file));
+  } catch (e) {
+    status.textContent = 'Extraction failed — tap to try again';
+    status.onclick = resetScan;
+  }
+}
+
+// Import a recipe from a pasted URL or free text (reuses the scan review flow).
+async function importRecipeText() {
+  const input = document.getElementById('import-input');
+  const raw = (input.value || '').trim();
+  if (!raw) { toast('Paste a link or recipe text'); return; }
+  const isUrl = /^https?:\/\/\S+$/i.test(raw);
+  document.getElementById('scan-launch').style.display = 'none';
+  document.getElementById('review').innerHTML = '';
+  const status = document.getElementById('scan-status');
+  status.style.display = 'block'; status.onclick = null;
+  status.textContent = isUrl ? '🔗 Reading the page… this can take ~20s' : '📝 Reading recipe… this can take ~20s';
+  try {
+    const translate = !!document.getElementById('recipe-translate')?.checked;
+    const res = await fetch(`${API}/recipes/extract-text`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(isUrl ? {url: raw, translate} : {text: raw, translate}),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'failed'); }
+    const json = await res.json();
+    scanDraft = json.draft; scanPhotoId = null; scanMatches = json.matches || [];
+    scanSource = {type: isUrl ? (/instagram\.com/i.test(raw) ? 'instagram' : 'url') : 'text', value: isUrl ? raw : ''};
+    scanIngredients = unwrap(scanDraft.ingredients).value || [];
+    scanSteps = unwrap(scanDraft.steps).value || [];
+    // Gated Instagram posts ("comment RECIPE") have no recipe on the page — say so plainly.
+    if (!scanIngredients.length && !scanSteps.length) {
+      status.textContent = "No recipe found there. If it's an Instagram post, paste the caption text here instead — tap to go back";
+      status.onclick = resetScan;
+      return;
+    }
+    status.style.display = 'none';
+    renderReview(null);
+  } catch (e) {
+    status.textContent = (e.message && e.message !== 'failed' ? e.message : 'Import failed') + ' — tap to go back';
+    status.onclick = resetScan;
+  }
+}
+
+function resetScan() {
+  scanDraft = null; scanPhotoId = null; scanIngredients = []; scanSteps = []; scanMatches = [];
+  scanSource = {type: 'photo', value: ''};
+  document.getElementById('review').innerHTML = '';
+  const status = document.getElementById('scan-status');
+  status.style.display = 'none'; status.onclick = null;
+  document.getElementById('scan-launch').style.display = 'block';
+  document.getElementById('scan-file').value = '';
+  const imp = document.getElementById('import-input'); if (imp) imp.value = '';
+}
+
+function renderReview(photoUrl) {
+  let html = photoUrl ? `<img class="scan-photo" src="${photoUrl}" />` : '';
+  if (scanMatches.length) {
+    html += `<div class="dup-banner">⚠ Looks like <b>${escapeHtml(scanMatches[0].name)}</b> is already in your recipes.
+      <button class="dup-btn" onclick="compareScannedMatch()">Compare &amp; merge</button>
+      <span style="color:var(--text3)"> — or Save below to keep both.</span></div>`;
+  }
+  SCAN_FIELDS.forEach(f => {
+    const w = unwrap(scanDraft[f.key]);
+    let v = w.value;
+    if (f.type === 'list') v = Array.isArray(v) ? v.join(', ') : (v || '');
+    v = escapeHtml(v == null ? '' : v);
+    const badge = {extracted:'✓ read', suggested:'✨ ai', empty:'—'}[w.source] || '✓ read';
+    const isSug = w.source === 'suggested';
+    const control = f.type === 'area'
+      ? `<textarea class="fval" data-key="${f.key}" data-type="${f.type}">${v}</textarea>`
+      : `<input class="fval" data-key="${f.key}" data-type="${f.type}" value="${v}" />`;
+    const accept = isSug
+      ? `<label class="accept-wrap"><input type="checkbox" class="accept" onchange="toggleAccept(this)" /> use</label>`
+      : '';
+    html += `<div class="frow${isSug ? ' off' : ''}">
+      <label>${f.key.replace(/_/g,' ')} <span class="badge ${w.source}">${badge}</span>${accept}</label>
+      ${control}</div>`;
+  });
+  if (scanIngredients.length) {
+    html += `<div class="section-label">Ingredients (${scanIngredients.length})</div>`
+      + `<div class="card"><div class="card-body">`
+      + scanIngredients.map(i => {
+          const o = unwrap(i).value || i;
+          const line = [o.amount, o.unit, o.item].filter(Boolean).join(' ');
+          return `<div class="event-name" style="margin-bottom:4px">• ${escapeHtml(line)}`
+            + (o.notes ? ` <span style="color:var(--text3)">— ${escapeHtml(o.notes)}</span>` : '') + `</div>`;
+        }).join('')
+      + `</div></div>`;
+  }
+  if (scanSteps.length) {
+    html += `<div class="section-label">Steps (${scanSteps.length})</div>`
+      + `<div class="card"><div class="card-body">`
+      + scanSteps.map((s, i) => {
+          const o = unwrap(s).value || s;
+          return `<div style="margin-bottom:8px;font-size:14px"><b>${i+1}.</b> ${escapeHtml(o.text || '')}</div>`;
+        }).join('')
+      + `</div></div>`;
+  }
+  if (scanSource && (scanSource.value || scanSource.author || scanSource.publisher)) {
+    const bits = [SOURCE_LABELS[scanSource.type] || scanSource.type, scanSource.value,
+      scanSource.author && ('by ' + scanSource.author), scanSource.publisher,
+      scanSource.page && ('p. ' + scanSource.page)].filter(Boolean);
+    html += `<div class="scan-hint" style="text-align:left;margin:6px 0 2px">Detected source: ${escapeHtml(bits.join(' · '))}</div>`;
+  }
+  html += `<button class="save-btn" onclick="saveScanned()">Save recipe</button>`;
+  html += `<button class="submit-btn" style="background:var(--surface);color:var(--text2);border:1.5px solid var(--border)" onclick="resetScan()">Cancel</button>`;
+  document.getElementById('review').innerHTML = html;
+}
+
+function toggleAccept(cb) {
+  cb.closest('.frow').classList.toggle('off', !cb.checked);
+}
+
+// Build the recipe object from the current review form + draft (shared by Save
+// and Compare & merge).
+function buildScannedRecipe() {
+  const recipe = {};
+  document.querySelectorAll('#review .frow').forEach(row => {
+    const ctrl = row.querySelector('.fval');
+    const acc = row.querySelector('.accept');
+    if (acc && !acc.checked) return;              // suggested + not approved → leave blank
+    const key = ctrl.dataset.key, type = ctrl.dataset.type;
+    let val = ctrl.value.trim();
+    if (type === 'list') { recipe[key] = val ? val.split(',').map(s => s.trim()).filter(Boolean) : []; return; }
+    if (val === '') return;
+    recipe[key] = val;
+  });
+  ['servings','difficulty','prep_time_min','cook_time_min'].forEach(k => {
+    if (recipe[k] != null) { const n = parseInt(recipe[k], 10); if (!isNaN(n)) recipe[k] = n; }
+  });
+  recipe.ingredients = scanIngredients.map(i => {
+    const o = unwrap(i).value || i;
+    return {amount: o.amount || '', unit: o.unit || '', item: o.item || '', notes: o.notes || ''};
+  });
+  recipe.steps = scanSteps.map(s => {
+    const o = unwrap(s).value || s;
+    return {text: o.text || '', duration_min: o.duration_min || 0};
+  });
+  recipe.source = {type: scanSource.type, value: scanSource.value || '',
+    author: scanSource.author || '', publisher: scanSource.publisher || '', page: scanSource.page || ''};
+  // Carry fields the review UI doesn't show so they aren't dropped (course F4, variations).
+  const uw = k => { const w = unwrap(scanDraft[k]); return w ? w.value : undefined; };
+  const course = uw('course'); if (course) recipe.course = course;
+  const variations = uw('variations'); if (Array.isArray(variations) && variations.length) recipe.variations = variations;
+  recipe.log = {entered_by: whoDefault(), entered_at: new Date().toISOString().split('T')[0]};
+  return recipe;
+}
+
+async function saveScanned() {
+  const recipe = buildScannedRecipe();
+  if (!recipe.name) { toast('Give the recipe a name'); return; }
+  if (scanPhotoId) { recipe._pending_photo = scanPhotoId; recipe._photo_who = whoDefault(); }
+  try {
+    await fetch(`${API}/recipes`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(recipe),
+    });
+    toast('Recipe saved ✓');
+    resetScan();
+  } catch (e) { toast('Save failed'); }
+}
+
+// Queue the reviewed recipe against its match so it can be compared & merged in
+// the home admin (mobile has no merge UI yet — the queue is the contract).
+async function compareScannedMatch() {
+  if (!scanMatches.length) return;
+  const m = scanMatches[0];
+  const recipe = buildScannedRecipe();
+  if (!recipe.name) { toast('Give the recipe a name'); return; }
+  try {
+    await fetch(`${API}/recipes/pending`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({recipe, matchId: m.id, matchName: m.name, matchScore: m.score, who: whoDefault()}),
+    });
+    toast('Queued to merge — finish on the home app ✓');
+    resetScan();
+  } catch (e) { toast('Could not queue'); }
+}
+
+// On-demand: ask AI to invent a new recipe while planning. It's saved AI-sourced;
+// then place it via the refine bar ("put X on Wednesday").
+async function createRecipeIdea() {
+  const input = document.getElementById('newrecipe-prompt');
+  const prompt = input.value.trim();
+  if (!prompt) { toast('Describe a dish first'); return; }
+  const btn = document.getElementById('newrecipe-btn');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const res = await fetch(`${API}/recipes/ai-generate`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prompt, count: 1}),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const json = await res.json();
+    const name = (json.created && json.created[0]) ? json.created[0].name : '';
+    input.value = '';
+    toast(name ? `Added "${name}" — ask AI to place it` : 'No recipe created');
+  } catch (e) { toast('AI failed'); }
+  btn.disabled = false; btn.textContent = '+ Recipe';
+}
+
+// ── Browse (recipe viewer, F3) ────────────────────────────────
+let browseIndex = null;
+const BR_COURSES = ['main','side','soup','salad','dessert','breakfast','baking','snack','drink','other'];
+const BR_COURSE_LABELS = {main:'Main course',side:'Side dish',soup:'Soup',salad:'Salad',dessert:'Dessert',
+  breakfast:'Breakfast',baking:'Baking & bread',snack:'Snack',drink:'Drink',other:'Other'};
+// Diacritic-insensitive fold so "kofte" matches "köfte".
+function fold(s){ return (s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/ı/g,'i').toLowerCase(); }
+function brCourseOf(r){ return BR_COURSES.includes(r.course) ? r.course : 'other'; }
+
+async function loadBrowse(){
+  if (browseIndex) { renderBrowse(); return; }
+  try { browseIndex = await (await fetch(`${API}/recipes`)).json(); }
+  catch(e){ document.getElementById('br-results').innerHTML = '<div class="empty">Cannot load recipes</div>'; return; }
+  document.getElementById('br-course').innerHTML = '<option value="">All courses</option>' +
+    BR_COURSES.filter(c => browseIndex.some(r => brCourseOf(r)===c))
+      .map(c => `<option value="${c}">${BR_COURSE_LABELS[c]}</option>`).join('');
+  const cuis = [...new Set(browseIndex.map(r => r.cuisine).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  document.getElementById('br-cuisine').innerHTML = '<option value="">All cuisines</option>' +
+    cuis.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  renderBrowse();
+}
+
+function renderBrowse(){
+  if (!browseIndex) return;
+  const q = fold(document.getElementById('br-q').value.trim());
+  const course = document.getElementById('br-course').value;
+  const cuisine = document.getElementById('br-cuisine').value;
+  const list = browseIndex.filter(r => {
+    if (course && brCourseOf(r) !== course) return false;
+    if (cuisine && r.cuisine !== cuisine) return false;
+    if (q){ const hay = fold([r.name, (r.tags||[]).join(' '), (r.ingredients||[]).join(' '), (r.equipment||[]).join(' ')].join(' ')); if (!hay.includes(q)) return false; }
+    return true;
+  });
+  document.getElementById('br-count').textContent = `${list.length} of ${browseIndex.length} recipes`;
+  const byC = {};
+  list.forEach(r => { (byC[brCourseOf(r)] = byC[brCourseOf(r)] || []).push(r); });
+  let html = '';
+  BR_COURSES.forEach(c => {
+    const g = byC[c];
+    if (!g || !g.length) return;
+    g.sort((a,b) => a.name.localeCompare(b.name));
+    html += `<div class="shop-cat">${BR_COURSE_LABELS[c]} · ${g.length}</div>`;
+    g.forEach(r => {
+      const t = r.total_time_min || 0;
+      const stars = r.rating ? '★'.repeat(r.rating) : '';
+      const meta = [r.cuisine ? escapeHtml(r.cuisine) : '', t ? t+'m' : '', stars].filter(Boolean).join(' · ');
+      html += `<div class="br-row" onclick="openRecipe('${escapeHtml(r.id)}')">
+        <span class="br-nm">${escapeHtml(r.name)}</span>
+        <span class="br-meta">${meta}</span></div>`;
+    });
+  });
+  document.getElementById('br-results').innerHTML = html || '<div class="empty">No recipes match.</div>';
+}
+
+// ── Shopping ──────────────────────────────────────────────────
+const SHOP_CATS = ["Produce","Bakery","Meat & Fish","Dairy & Eggs","Pantry","Spices & Seasoning","International","Frozen","Drinks","Household","Other"];
+let shopWeekStart = getMondayOf(new Date());
+let shopData = null, shopSaveTimer = null;
+let shopSelDays = new Set();   // indices into shopData.days that are in view (F1)
+function shopNorm(s) { return (s || '').trim().toLowerCase(); }
+
+function shopSelectWeek(offset) {
+  shopWeekStart = getMondayOf(new Date());
+  shopWeekStart.setDate(shopWeekStart.getDate() + offset * 7);
+  document.getElementById('shop-wk-this').classList.toggle('active', offset === 0);
+  document.getElementById('shop-wk-next').classList.toggle('active', offset === 1);
+  loadShopping();
+}
+
+async function loadShopping() {
+  const wk = weekKey(shopWeekStart);
+  if (shopData && shopData.weekKey === wk) { renderShopping(); return; }  // same week: keep unsaved toggles
+  try {
+    const d = await (await fetch(`${API}/shopping/${wk}`)).json();
+    shopData = {weekKey: wk, days: d.days || [], extras: d.extras || [], bought: new Set(d.bought || [])};
+    shopSelDays = new Set(shopData.days.map((_, i) => i));   // all days on per load
+    renderShopping();
+  } catch (e) {
+    document.getElementById('shop-list').innerHTML = '<div class="empty">Cannot load</div>';
+  }
+}
+
+// ── Amount aggregation (F1) ───────────────────────────────────
+// Sum an item's quantities across the selected days. Mirrors backend
+// parse_qty families (mass→g, volume→ml, spoon→tsp, count). NOTE: keep this
+// block line-identical to shopping-relay/app.js when the relay is updated.
+function fmtNum(n) {
+  const r = Math.round(n * 100) / 100;
+  return (Math.abs(r - Math.round(r)) < 1e-9) ? String(Math.round(r)) : String(r);
+}
+function pickUnit(family, v) {
+  if (family === 'mass')   return v >= 1000 ? ['kg', 1000] : ['g', 1];
+  if (family === 'volume') return v >= 1000 ? ['l', 1000] : (v >= 100 ? ['dl', 100] : ['ml', 1]);
+  if (family === 'spoon')  return v >= 48 ? ['cup', 48] : (v >= 3 ? ['tbsp', 3] : ['tsp', 1]);
+  return ['', 1];
+}
+function renderBucket(family, lo, hi, unitWord) {
+  if (family === 'count') {
+    const num = (lo === hi) ? fmtNum(lo) : `${fmtNum(lo)}–${fmtNum(hi)}`;
+    return unitWord ? `${num} ${unitWord}` : num;
+  }
+  const [u, div] = pickUnit(family, hi);
+  const num = (lo === hi) ? fmtNum(lo / div) : `${fmtNum(lo / div)}–${fmtNum(hi / div)}`;
+  return `${num} ${u}`;
+}
+// → Map(normName → {display, category, item})
+function aggregate(days, selectedIdxs) {
+  const items = new Map();
+  days.forEach((day, idx) => {
+    if (!selectedIdxs.has(idx)) return;
+    (day.ingredients || []).forEach(ing => {
+      const norm = shopNorm(ing.item);
+      if (!norm) return;
+      let e = items.get(norm);
+      if (!e) { e = {item: ing.item, category: ing.category, buckets: new Map(), raws: []}; items.set(norm, e); }
+      if (!e.category) e.category = ing.category;
+      const q = ing.qty || {};
+      if (q.family && q.lo != null) {
+        const key = q.family + '|' + (q.unit || '');
+        let b = e.buckets.get(key);
+        if (!b) { b = {family: q.family, unitWord: q.unit || '', lo: 0, hi: 0}; e.buckets.set(key, b); }
+        b.lo += q.lo; b.hi += q.hi;
+      } else {                                    // unparseable → carry raw text
+        const raw = [ing.amount, ing.unit].filter(Boolean).join(' ').trim();
+        if (raw && !e.raws.includes(raw)) e.raws.push(raw);
+      }
+    });
+  });
+  const out = new Map();
+  items.forEach((e, norm) => {
+    const parts = [];
+    e.buckets.forEach(b => parts.push(renderBucket(b.family, b.lo, b.hi, b.unitWord)));
+    e.raws.forEach(r => parts.push(r));
+    out.set(norm, {display: parts.join(' + '), category: e.category || 'Other', item: e.item});
+  });
+  return out;
+}
+
+async function shopPublish() {
+  const btn = document.getElementById('shop-publish-btn');
+  const wk = weekKey(shopWeekStart);
+  btn.disabled = true; btn.textContent = 'Publishing…';
+  try {
+    const r = await fetch(`${API}/shopping/${wk}/publish`, {method: 'POST'});
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      toast(e.detail || 'Publish failed');
+    } else {
+      toast('Sent to phone ✓');
+    }
+  } catch (e) {
+    toast('Publish failed');
+  }
+  btn.disabled = false; btn.textContent = '📲 Publish to phone';
+}
+
+function shopSave() {
+  if (!shopData) return;
+  clearTimeout(shopSaveTimer);
+  shopSaveTimer = setTimeout(() => {
+    fetch(`${API}/shopping/${shopData.weekKey}`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({bought: [...shopData.bought]}),
+    });
+  }, 400);
+}
+
+function shopToggle(item) {
+  if (!shopData) return;
+  const k = shopNorm(item);
+  shopData.bought.has(k) ? shopData.bought.delete(k) : shopData.bought.add(k);
+  renderShopping();
+  shopSave();
+}
+
+function renderDayChips() {
+  const el = document.getElementById('shop-daychips');
+  if (!shopData || !shopData.days.length) { el.innerHTML = ''; return; }
+  const allOn = shopData.days.every((_, i) => shopSelDays.has(i));
+  let html = `<button class="daychip${allOn ? ' on' : ''}" onclick="shopChipAll()"><span class="dc-day">All</span></button>`;
+  shopData.days.forEach((d, i) => {
+    html += `<button class="daychip${shopSelDays.has(i) ? ' on' : ''}" onclick="shopChipToggle(${i})">
+      <span class="dc-day">${escapeHtml(d.day || '·')}</span>
+      <span class="dc-name">${escapeHtml(d.name || '')}</span></button>`;
+  });
+  el.innerHTML = html;
+}
+function shopChipToggle(i) {
+  shopSelDays.has(i) ? shopSelDays.delete(i) : shopSelDays.add(i);
+  renderShopping();
+}
+function shopChipAll() {
+  const allOn = shopData.days.every((_, i) => shopSelDays.has(i));
+  shopSelDays = allOn ? new Set() : new Set(shopData.days.map((_, i) => i));
+  renderShopping();
+}
+
+function renderShopping() {
+  if (!shopData) return;
+  renderDayChips();
+
+  // Single list, grouped by category. One tick crosses an item off.
+  const byCat = {};
+  // Manual extras (F9): always shown — week-level, not tied to a day.
+  (shopData.extras || []).forEach(e => {
+    if (!e || !e.item) return;
+    const cat = e.category || 'Other';
+    (byCat[cat] = byCat[cat] || []).push({norm: shopNorm(e.item), item: e.item, display: '', extra: true});
+  });
+  const agg = aggregate(shopData.days, shopSelDays);
+  agg.forEach((v, norm) => { (byCat[v.category] = byCat[v.category] || []).push({norm, ...v}); });
+  let html = '', any = false;
+  SHOP_CATS.forEach(cat => {
+    const items = (byCat[cat] || []).sort((a, b) => a.item.localeCompare(b.item));
+    if (!items.length) return;
+    any = true;
+    html += `<div class="shop-cat">${cat}</div>`;
+    items.forEach(it => {
+      const bought = shopData.bought.has(it.norm);
+      const del = it.extra ? `<button type="button" class="ex-del" data-item="${escapeHtml(it.item)}" title="Remove">✕</button>` : '';
+      html += `<label class="shop-row${bought ? ' bought' : ''}">
+        <input type="checkbox" class="shop-cb" data-item="${escapeHtml(it.item)}" ${bought ? 'checked' : ''} />
+        <span class="shop-item">${escapeHtml(it.item)}${it.display ? ` <span class="shop-qty">${escapeHtml(it.display)}</span>` : ''}${it.extra ? ' <span class="ex-tag">extra</span>' : ''}</span>${del}</label>`;
+    });
+  });
+  const listEl = document.getElementById('shop-list');
+  const hasExtras = (shopData.extras || []).length > 0;
+  if (any) listEl.innerHTML = html;
+  else if (!shopData.days.length && !hasExtras) listEl.innerHTML = '<div class="empty">No meals planned this week</div>';
+  else if (!shopSelDays.size) listEl.innerHTML = '<div class="empty">Select a day above to see its list</div>';
+  else listEl.innerHTML = '<div class="empty">No ingredients for the selected days</div>';
+}
+
+// ── Manual extras (F9) ──────────────────────────────────────
+async function shopAddExtra() {
+  const inp = document.getElementById('shop-extra-input');
+  const item = (inp.value || '').trim();
+  if (!item || !shopData) return;
+  const wk = shopData.weekKey;
+  inp.value = '';
+  try {
+    const r = await fetch(`${API}/shopping/${wk}/extra`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({item}),
+    });
+    if (!r.ok) throw new Error(r.status);
+    const d = await (await fetch(`${API}/shopping/${wk}`)).json();
+    shopData.extras = d.extras || [];
+    renderShopping();
+  } catch (e) { toast('Could not add'); }
+}
+async function shopRemoveExtra(item) {
+  if (!shopData) return;
+  const wk = shopData.weekKey;
+  shopData.extras = (shopData.extras || []).filter(e => shopNorm(e.item) !== shopNorm(item));
+  renderShopping();
+  try {
+    await fetch(`${API}/shopping/${wk}/extra/delete`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({item}),
+    });
+  } catch (e) { toast('Could not remove'); }
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+init();
+</script>
+</body>
+</html>

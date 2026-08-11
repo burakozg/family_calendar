@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title id="page-title">Family Calendar — Recipes</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg:#f5f4f0; --surface:#fff; --surface2:#f0ede8; --border:#e2ddd6; --border2:#ccc7be;
+  --text:#1a1815; --text2:#6b6560; --text3:#a09890; --accent:#2d6be4; --accent-bg:#eef3fd;
+  --danger:#d94040; --success:#2a8a4a; --radius:10px; --radius-sm:6px;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:var(--bg); color:var(--text); font-size:14px; line-height:1.45; }
+a { color:var(--accent); }
+.wrap { max-width:900px; margin:0 auto; padding:20px 18px 60px; }
+.top { display:flex; align-items:baseline; gap:12px; margin-bottom:14px; }
+.top h1 { font-size:20px; font-weight:600; letter-spacing:-.01em; }
+.top .nav { margin-left:auto; font-size:13px; }
+/* Filters (sticky) */
+.filters { position:sticky; top:0; z-index:10; background:var(--bg); padding:10px 0 12px;
+  border-bottom:1px solid var(--border); }
+.filters .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.filters input[type=text], .filters select {
+  padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius-sm);
+  font-family:inherit; font-size:13px; background:var(--surface); color:var(--text); }
+.filters input[type=text] { flex:1; min-width:180px; }
+.filters .clear { padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm);
+  background:var(--surface); cursor:pointer; font-family:inherit; font-size:13px; color:var(--text2); }
+.filters .clear:hover { background:var(--surface2); }
+.count { font-size:12px; color:var(--text3); margin:12px 0 6px; }
+/* Results */
+.course-h { font-size:12px; font-weight:600; color:var(--text3); text-transform:uppercase;
+  letter-spacing:.05em; margin:16px 0 4px; padding-bottom:3px; border-bottom:1px solid var(--border); }
+.course-h span { color:var(--text2); }
+.res { display:flex; align-items:center; gap:10px; padding:9px 10px; border:1px solid var(--border);
+  border-radius:var(--radius-sm); background:var(--surface); cursor:pointer; margin-bottom:6px; }
+.res:hover { border-color:var(--accent); }
+.res.sel { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+.res .nm { font-weight:600; flex:1; min-width:0; }
+.res .meta { display:flex; gap:8px; flex-wrap:wrap; align-items:center; flex-shrink:0; }
+.pill { font-size:11px; color:var(--text2); background:var(--surface2); border:1px solid var(--border);
+  border-radius:20px; padding:2px 8px; white-space:nowrap; }
+.stars { color:#e0a93a; font-size:12px; }
+.empty { color:var(--text3); font-size:13px; padding:16px 0; }
+/* Detail */
+#detail { margin-top:22px; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px 20px; }
+.card h2 { font-size:20px; font-weight:600; margin-bottom:4px; }
+.card .desc { color:var(--text2); margin-bottom:10px; }
+.chips { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+.sec-h { font-size:12px; font-weight:600; color:var(--accent); text-transform:uppercase;
+  letter-spacing:.05em; margin:16px 0 6px; }
+.ing { display:flex; gap:8px; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); }
+.ing .amt { color:var(--text2); min-width:90px; flex-shrink:0; }
+.step { display:flex; gap:10px; padding:6px 0; font-size:13px; }
+.step .n { flex-shrink:0; width:22px; height:22px; border-radius:50%; background:var(--accent-bg);
+  color:var(--accent); font-size:12px; font-weight:600; display:flex; align-items:center; justify-content:center; }
+.photos { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 4px; }
+.photos img { width:130px; height:130px; object-fit:cover; border-radius:var(--radius-sm); border:1px solid var(--border); }
+.detail-top { display:flex; align-items:baseline; gap:12px; }
+.detail-top .edit { margin-left:auto; font-size:13px; }
+.notes { white-space:pre-wrap; font-size:13px; color:var(--text2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>🍳 Recipes</h1>
+    <span class="nav"><a href="/admin.html">Admin ↗</a></span>
+  </div>
+
+  <div class="filters">
+    <div class="row">
+      <input type="text" id="q" placeholder="Search name, ingredient, tag, equipment…" oninput="render()" />
+      <select id="f-course" onchange="render()"></select>
+      <select id="f-cuisine" onchange="render()"></select>
+      <select id="f-source" onchange="render()"></select>
+      <select id="f-who" onchange="render()"></select>
+      <select id="f-time" onchange="render()">
+        <option value="0">Any time</option>
+        <option value="30">≤ 30 min</option>
+        <option value="45">≤ 45 min</option>
+        <option value="60">≤ 60 min</option>
+      </select>
+      <select id="f-rating" onchange="render()">
+        <option value="0">Any rating</option>
+        <option value="3">★★★+</option>
+        <option value="4">★★★★+</option>
+        <option value="5">★★★★★</option>
+      </select>
+      <button class="clear" onclick="clearFilters()">Clear</button>
+    </div>
+  </div>
+
+  <div class="count" id="count"></div>
+  <div id="results"></div>
+  <div id="detail"></div>
+</div>
+
+<script>
+const API = window.location.origin;
+const RECIPE_COURSES = ['main','side','soup','salad','dessert','breakfast','baking','snack','drink','other'];
+const COURSE_LABELS = { main:'Main course', side:'Side dish', soup:'Soup', salad:'Salad',
+  dessert:'Dessert', breakfast:'Breakfast', baking:'Baking & bread', snack:'Snack', drink:'Drink', other:'Other' };
+const SOURCE_LABELS = { url:'Website', instagram:'Instagram', book:'Book', magazine:'Magazine',
+  person:'Person', text:'Pasted text', photo:'Photo scan', notion:'Notion', ai:'AI generated',
+  memory:'Family / memory', handwritten:'Handwritten', unknown:'Unknown' };
+
+let index = [], members = [], selectedId = null;
+
+// Diacritic-insensitive fold: matches "köfte" when the user types "kofte" (F3/F8).
+function fold(s){ return (s||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
+                   .replace(/ı/g,'i').toLowerCase(); }
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function courseOf(r){ return RECIPE_COURSES.includes(r.course) ? r.course : 'other'; }
+function whoLabel(id){ const m = members.find(x => x.id === id); return m ? m.label : (id || ''); }
+function opt(v,l,sel){ return `<option value="${esc(v)}"${sel?' selected':''}>${esc(l)}</option>`; }
+
+async function init(){
+  try {
+    const s = await fetch(`${API}/settings`).then(r=>r.json());
+    members = s.members || [];
+    document.getElementById('page-title').textContent = (s.appName || 'Family Calendar') + ' — Recipes';
+  } catch(e){}
+  try {
+    index = await fetch(`${API}/recipes`).then(r=>r.json());
+  } catch(e){ document.getElementById('results').innerHTML = '<div class="empty">Cannot load recipes</div>'; return; }
+  buildFilterOptions();
+  render();
+}
+
+function buildFilterOptions(){
+  document.getElementById('f-course').innerHTML = opt('','All courses') +
+    RECIPE_COURSES.filter(c => index.some(r => courseOf(r)===c))
+      .map(c => opt(c, COURSE_LABELS[c])).join('');
+  const cuisines = [...new Set(index.map(r => r.cuisine).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  document.getElementById('f-cuisine').innerHTML = opt('','All cuisines') + cuisines.map(c => opt(c,c)).join('');
+  const sources = [...new Set(index.map(r => r.source_type).filter(Boolean))].sort();
+  document.getElementById('f-source').innerHTML = opt('','All sources') +
+    sources.map(s => opt(s, SOURCE_LABELS[s] || s)).join('');
+  const whos = [...new Set(index.map(r => r.entered_by).filter(Boolean))].sort();
+  document.getElementById('f-who').innerHTML = opt('','Anyone') + whos.map(w => opt(w, whoLabel(w))).join('');
+}
+
+function clearFilters(){
+  document.getElementById('q').value = '';
+  ['f-course','f-cuisine','f-source','f-who'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f-time').value = '0';
+  document.getElementById('f-rating').value = '0';
+  render();
+}
+
+function render(){
+  const q      = fold(document.getElementById('q').value.trim());
+  const course = document.getElementById('f-course').value;
+  const cuisine= document.getElementById('f-cuisine').value;
+  const source = document.getElementById('f-source').value;
+  const who    = document.getElementById('f-who').value;
+  const maxT   = parseInt(document.getElementById('f-time').value, 10) || 0;
+  const minR   = parseInt(document.getElementById('f-rating').value, 10) || 0;
+
+  const list = index.filter(r => {
+    if (course && courseOf(r) !== course) return false;
+    if (cuisine && r.cuisine !== cuisine) return false;
+    if (source && r.source_type !== source) return false;
+    if (who && r.entered_by !== who) return false;
+    if (maxT && (r.total_time_min || 0) > maxT) return false;
+    if (minR && (r.rating || 0) < minR) return false;
+    if (q) {
+      const hay = fold([r.name, (r.tags||[]).join(' '), (r.ingredients||[]).join(' '), (r.equipment||[]).join(' ')].join(' '));
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  document.getElementById('count').textContent =
+    `${list.length} of ${index.length} recipe${index.length === 1 ? '' : 's'}`;
+
+  const byCourse = {};
+  list.forEach(r => { (byCourse[courseOf(r)] = byCourse[courseOf(r)] || []).push(r); });
+  let html = '';
+  RECIPE_COURSES.forEach(c => {
+    const g = byCourse[c];
+    if (!g || !g.length) return;
+    g.sort((a,b) => a.name.localeCompare(b.name));
+    html += `<div class="course-h">${esc(COURSE_LABELS[c])} <span>${g.length}</span></div>`;
+    g.forEach(r => { html += resultRow(r); });
+  });
+  document.getElementById('results').innerHTML = html ||
+    (index.length ? '<div class="empty">No recipes match these filters.</div>'
+                  : '<div class="empty">No recipes yet.</div>');
+}
+
+function resultRow(r){
+  const t = r.total_time_min || 0;
+  const stars = r.rating ? '★'.repeat(r.rating) : '';
+  const dots = r.difficulty ? '●'.repeat(r.difficulty) + '○'.repeat(5 - r.difficulty) : '';
+  return `<div class="res${r.id===selectedId?' sel':''}" onclick="selectRecipe('${esc(r.id)}')">
+    <span class="nm">${esc(r.name)}</span>
+    <span class="meta">
+      ${r.cuisine ? `<span class="pill">${esc(r.cuisine)}</span>` : ''}
+      ${t ? `<span class="pill">⏱ ${t} min</span>` : ''}
+      ${dots ? `<span class="pill" title="Difficulty ${r.difficulty}/5">${dots}</span>` : ''}
+      ${stars ? `<span class="stars">${stars}</span>` : ''}
+    </span></div>`;
+}
+
+async function selectRecipe(id){
+  selectedId = id;
+  render();
+  const box = document.getElementById('detail');
+  box.innerHTML = '<div class="card"><div class="empty">Loading…</div></div>';
+  let r;
+  try { r = await fetch(`${API}/recipes/${encodeURIComponent(id)}`).then(x=>x.json()); }
+  catch(e){ box.innerHTML = '<div class="card"><div class="empty">Could not load this recipe.</div></div>'; return; }
+  box.innerHTML = detailHTML(r);
+  box.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function detailHTML(r){
+  const t = (r.prep_time_min||0)+(r.cook_time_min||0)+(r.inactive_time_min||0);
+  const chips = [];
+  if (r.course && COURSE_LABELS[r.course]) chips.push(COURSE_LABELS[r.course]);
+  if (r.cuisine) chips.push(r.cuisine);
+  if (r.servings) chips.push(`serves ${r.servings}`);
+  if (t) chips.push(`⏱ ${t} min`);
+  if (r.difficulty) chips.push(`difficulty ${r.difficulty}/5`);
+  if (r.cost) chips.push(`cost: ${r.cost}`);
+  if (r.rating) chips.push('★'.repeat(r.rating));
+  (r.dietary||[]).forEach(d => chips.push(d));
+  (r.tags||[]).forEach(tg => chips.push(tg));
+
+  const photos = (r.photos||[]).filter(p => p && p.url);
+  const ings = (r.ingredients||[]).filter(i => (i.item||'').trim());
+  const steps = (r.steps||[]).filter(s => (s.text||'').trim());
+  const variations = (r.variations||[]).filter(Boolean);
+
+  let h = `<div class="card">
+    <div class="detail-top">
+      <div><h2>${esc(r.name||'')}</h2></div>
+      <span class="edit"><a href="/admin.html" title="Open the admin recipe library">Edit in admin ↗</a></span>
+    </div>`;
+  if (r.description) h += `<div class="desc">${esc(r.description)}</div>`;
+  if (chips.length) h += `<div class="chips">${chips.map(c=>`<span class="pill">${esc(c)}</span>`).join('')}</div>`;
+  if (photos.length) h += `<div class="photos">${photos.map(p=>`<img src="${esc(p.url)}" alt="" loading="lazy" />`).join('')}</div>`;
+  if (ings.length){
+    h += `<div class="sec-h">Ingredients</div>` + ings.map(i => {
+      const amt = [i.amount, i.unit].filter(Boolean).join(' ');
+      const note = i.notes ? ` — ${esc(i.notes)}` : '';
+      return `<div class="ing"><span class="amt">${esc(amt)}</span><span>${esc(i.item)}${note}</span></div>`;
+    }).join('');
+  }
+  if (steps.length){
+    h += `<div class="sec-h">Method</div>` + steps.map((s,i) =>
+      `<div class="step"><span class="n">${i+1}</span><span>${esc(s.text)}${s.duration_min?` <span class="pill">${s.duration_min} min</span>`:''}</span></div>`).join('');
+  }
+  if (r.notes) h += `<div class="sec-h">Notes</div><div class="notes">${esc(r.notes)}</div>`;
+  if (variations.length) h += `<div class="sec-h">Variations</div>` +
+    variations.map(v => `<div class="ing"><span>${esc(v)}</span></div>`).join('');
+  h += `</div>`;
+  return h;
+}
+
+init();
+</script>
+</body>
+</html>
