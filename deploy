@@ -56,7 +56,18 @@ require_env() { [[ -f .env ]] || die ".env is missing. Copy .env.example to .env
 nas_ssh_ok() {
   nc -z -G 5 "${NAS_SSH##*@}" "$NAS_SSH_PORT" 2>/dev/null \
     || die "Can't reach ${NAS_SSH##*@}:${NAS_SSH_PORT}. Connect the VPN (or the home LAN) first."
-  echo "  (ssh: ${NAS_SSH}:${NAS_SSH_PORT} — set up a key with 'ssh-copy-id -p ${NAS_SSH_PORT} ${NAS_SSH}' to stop the password prompts)"
+  # Probe key auth explicitly. Without a key every ssh below falls back to a
+  # password prompt — fine by hand, but it silently blocks forever when nothing
+  # can type (a background run, CI, an agent), which reads as "the deploy froze".
+  if ssh -o BatchMode=yes -o ConnectTimeout=5 -p "$NAS_SSH_PORT" "$NAS_SSH" true 2>/dev/null; then
+    echo "  (ssh: ${NAS_SSH}:${NAS_SSH_PORT} — key auth OK)"
+  else
+    echo "  ! No ssh key for ${NAS_SSH}: every step below will prompt for a password,"
+    echo "    and will hang instead of prompting if this isn't an interactive terminal."
+    echo "    Fix it once:  ssh-copy-id -p ${NAS_SSH_PORT} ${NAS_SSH}"
+    echo "    Keep the user as-is — ${NAS_SSH%%@*} owns ${NAS_ROOT}; other NAS accounts"
+    echo "    can read it but cannot write backend/, frontend/, or .env."
+  fi
 }
 
 # ── mac ───────────────────────────────────────────────────────────────────────
