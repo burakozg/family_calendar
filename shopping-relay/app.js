@@ -28,6 +28,7 @@ const LS_TOKEN='relay_token', LS_LIST='relay_list', LS_CAL='relay_cal', LS_WTOKE
 let token='', wtoken='', data=null, cal=null, recipes=null, cfg=null;
 let tab='events', dirty=false, saveTimer=null;
 let evPerson=null, evIcon='meeting', mealWeek='this', mealWhich='today';
+let evShowLater=false;                         // "later than 3 months" section expanded?
 let homeLoaded=false;                          // AI tab iframe state
 let shopSelDays=new Set(), shopSelWeek=null;   // F1 shopping view state
 // F9 manual extras: the NAS is the source of truth, but a queued add/remove
@@ -41,7 +42,9 @@ function esc(s){ return (s||'').toString().replace(/[&<>"']/g, c => ({'&':'&amp;
 function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
 function setDot(state){ $('dot').className='dot'+(state==='off'?' off':state==='err'?' err':''); }
 function todayISO(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
-function fmtDate(s){ const d=new Date(s+'T00:00'); return isNaN(d)?s:d.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}); }
+// Year included on purpose: renewal reminders (passport, licence) sit years out,
+// and a bare "Fri 24 Dec" among them reads as if the list were unsorted.
+function fmtDate(s){ const d=new Date(s+'T00:00'); return isNaN(d)?s:d.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short',year:'numeric'}); }
 
 // ── Tokens ─────────────────────────────────────────────────────
 function readTokenFromHash(){
@@ -212,15 +215,44 @@ function memberColor(id){
   const m = (cal && cal.members || []).find(x => x.id === id);
   return m ? (m.bg || '#888') : '#888';
 }
+// The date 3 months out, as an ISO string so it compares directly against e.date.
+// setMonth overflows the way we want here (31 Dec + 3 → 31 Mar; 30 Nov + 3 → 2 Mar),
+// since the cutoff only has to be about right.
+function threeMonthsOut(){
+  const d = new Date(); d.setHours(0,0,0,0); d.setMonth(d.getMonth() + 3);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function eventRow(e, i){
+  const meta = fmtDate(e.date) + (e.endDate ? ` → ${fmtDate(e.endDate)}` : '') + (e.time ? ` · ${esc(e.time)}` : '');
+  return `<div class="event-item"><span class="event-dot" style="background:${esc(memberColor(e.who))}"></span>
+    <div class="event-info"><div class="event-name">${ICON_EMOJI[e.icon]||''} ${esc(e.label||'')}</div>
+    <div class="event-meta">${meta}</div></div>
+    <button class="event-del" data-i="${i}">✕</button></div>`;
+}
+
 function renderUpcoming(){
   const evs = (cal && cal.events) || [];
-  $('upcoming').innerHTML = evs.length ? evs.slice(0,15).map((e, i) => {
-    const meta = fmtDate(e.date) + (e.endDate ? ` → ${fmtDate(e.endDate)}` : '') + (e.time ? ` · ${esc(e.time)}` : '');
-    return `<div class="event-item"><span class="event-dot" style="background:${esc(memberColor(e.who))}"></span>
-      <div class="event-info"><div class="event-name">${ICON_EMOJI[e.icon]||''} ${esc(e.label||'')}</div>
-      <div class="event-meta">${meta}</div></div>
-      <button class="event-del" data-i="${i}">✕</button></div>`;
-  }).join('') : '<div class="empty">Nothing coming up.</div>';
+  if (!evs.length){ $('upcoming').innerHTML = '<div class="empty">Nothing coming up.</div>'; return; }
+
+  // Carry each event's index in cal.events through the split — deleteItem() looks
+  // the event up by position, so a row's data-i must survive the regrouping.
+  const cut   = threeMonthsOut();
+  const rows  = evs.map((e, i) => ({e, i}));
+  const soon  = rows.filter(r => (r.e.date || '') < cut);
+  const later = rows.filter(r => (r.e.date || '') >= cut);
+
+  let html = soon.length
+    ? soon.map(r => eventRow(r.e, r.i)).join('')
+    : '<div class="empty">Nothing in the next 3 months.</div>';
+
+  if (later.length){
+    html += `<button type="button" class="later-toggle" id="later-toggle">
+      <span>${evShowLater ? 'Hide' : 'Show'} ${later.length} later</span>
+      <span class="later-caret">${evShowLater ? '▾' : '▸'}</span></button>`;
+    if (evShowLater) html += `<div class="event-list">${later.map(r => eventRow(r.e, r.i)).join('')}</div>`;
+  }
+  $('upcoming').innerHTML = html;
 }
 async function submitAdd(){
   const label = $('ev-label').value.trim();
@@ -287,52 +319,94 @@ function renderMealDetail(){
   if (!ings.length && !steps.length && tm.notes) html += `<div class="md-step">${esc(tm.notes)}</div>`;
   el.innerHTML = html;
 }
+// One toggle governs the whole Recipes tab — scan, upload and link import alike.
+// Off means "store it in the language it was written in", which is the default the
+// home server assumes when the flag is absent.
+function translateOn(){ const c = $('rec-translate'); return !!(c && c.checked); }
+
 async function importRecipe(){
   const input = $('ri-input');
   const raw = (input.value||'').trim();
   if (!raw) { toast('Paste a link or recipe text'); return; }
   const isUrl = /^https?:\/\/\S+$/i.test(raw);
-  const translate = !!($('ri-translate') && $('ri-translate').checked);
+  const translate = translateOn();
   const ok = await queueCmd('recipe_import', isUrl ? {url:raw, translate} : {text:raw, translate}, $('ri-submit'));
   if (ok) input.value = '';
 }
 
 // Photo scan: downscale client-side so the queued command stays small
-// (~1280px JPEG ≈ 200–500 KB base64; the relay caps bodies at 1 MB), then
+// (~1600px JPEG ≈ 300–600 KB base64; the relay caps bodies at 1 MB), then
 // queue it — the NAS AI-extracts (original language) and saves the recipe
 // flagged needs_review for the home Recipe editor.
-function downscalePhoto(file, maxDim, quality){
-  return new Promise((resolve, reject) => {
+
+// Decode the picked file into something canvas can draw. createImageBitmap is
+// tried first: it decodes a 12 MP phone photo without materialising a full-size
+// <img> (Safari in a standalone PWA is quick to kill those on memory pressure),
+// and applies EXIF orientation, so a sideways photo doesn't reach the AI rotated.
+// The <img> path stays as the fallback.
+async function decodeImage(file){
+  if (window.createImageBitmap) {
+    try { return await createImageBitmap(file, {imageOrientation: 'from-image'}); }
+    catch (e) { /* unsupported options or codec — try the <img> path */ }
+  }
+  return await new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(img.src);
-      const s = Math.min(1, maxDim / Math.max(img.width, img.height));
-      const c = document.createElement('canvas');
-      c.width = Math.max(1, Math.round(img.width * s));
-      c.height = Math.max(1, Math.round(img.height * s));
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      resolve(c.toDataURL('image/jpeg', quality).split(',')[1]);
-    };
-    img.onerror = () => { URL.revokeObjectURL(img.src); reject(new Error('bad image')); };
-    img.src = URL.createObjectURL(file);
+    const url = URL.createObjectURL(file);
+    img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode failed')); };
+    img.src = url;
   });
 }
+
+function encodeJpeg(src, maxDim, quality){
+  const w = src.width || src.naturalWidth, h = src.height || src.naturalHeight;
+  const s = Math.min(1, maxDim / Math.max(w, h));
+  const c = document.createElement('canvas');
+  c.width  = Math.max(1, Math.round(w * s));
+  c.height = Math.max(1, Math.round(h * s));
+  c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', quality).split(',')[1];
+}
+
 async function scanPhoto(input){
   const file = input.files && input.files[0];
   input.value = '';
   if (!file) return;
   const st = $('scan-status');
   st.style.display = 'block'; st.textContent = 'Preparing photo…';
+  const done = msg => { st.textContent = msg; setTimeout(() => { st.style.display = 'none'; }, 8000); };
+
+  // Each stage reports its own failure. One catch-all around the lot used to
+  // blame the image for what were really encode or size problems, which left
+  // nothing to act on ("try another photo" doesn't help if every photo fails).
+  let src;
   try {
-    let b64 = await downscalePhoto(file, 1280, 0.8);
-    if (b64.length > 900000) b64 = await downscalePhoto(file, 1024, 0.65);  // stay under the relay cap
-    st.textContent = 'Queuing…';
-    const ok = await queueCmd('recipe_photo', {image: b64, media: 'image/jpeg'}, null);
-    st.textContent = ok
-      ? 'Queued ✓ — AI reads it at home and saves it, flagged for review in the Recipe editor.'
-      : 'Couldn’t queue — try again.';
-  } catch(e){ st.textContent = 'Could not read that image — try another photo.'; }
-  setTimeout(() => { st.style.display = 'none'; }, 8000);
+    src = await decodeImage(file);
+  } catch (e) {
+    console.error('photo decode failed', file.type, file.size, e);
+    return done(`Could not read that image (${file.type || 'unknown format'}) — try another photo.`);
+  }
+
+  let b64;
+  try {
+    // Start big for legibility — recipe cards are dense small print — then step
+    // down until it fits the relay's 1 MB cap.
+    for (const [dim, q] of [[1600, 0.8], [1280, 0.7], [1024, 0.6], [800, 0.5]]) {
+      b64 = encodeJpeg(src, dim, q);
+      if (b64.length <= 900000) break;
+    }
+  } catch (e) {
+    console.error('photo encode failed', file.type, file.size, e);
+    return done('Could not prepare that photo — try another one.');
+  } finally {
+    if (src.close) src.close();               // release the ImageBitmap's memory
+  }
+  if (b64.length > 900000) return done('That photo is too detailed to send — try a tighter crop.');
+
+  st.textContent = 'Queuing…';
+  const ok = await queueCmd('recipe_photo', {image: b64, media: 'image/jpeg', translate: translateOn()}, null);
+  done(ok ? 'Queued ✓ — AI reads it at home and saves it, flagged for review in the Recipe editor.'
+          : 'Couldn’t queue — try again.');
 }
 
 // ── Shopping tab (F1: merged Have + Shop) ──────────────────────
@@ -697,6 +771,7 @@ function wireUI(){
     evIcon = b.dataset.icon; renderEvents();
   });
   $('upcoming').addEventListener('click', e => {
+    if (e.target.closest('.later-toggle')){ evShowLater = !evShowLater; renderUpcoming(); return; }
     const b = e.target.closest('.event-del'); if (!b) return;
     deleteItem(parseInt(b.dataset.i, 10));
   });

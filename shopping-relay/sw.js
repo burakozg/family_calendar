@@ -2,7 +2,7 @@
 // Caches only the static app shell so the page loads instantly and works offline.
 // The list data (/list, /state) is never cached here — the page keeps its own
 // localStorage copy and handles offline/sync itself.
-const CACHE = 'shop-shell-v17';  // bumped: reveal the AI iframe only after load (fixes 'can't scroll on first open')
+const CACHE = 'shop-shell-v18';  // bumped: 3-month event split + years on dates; sturdier photo decode
 const SHELL = [
   '/',
   '/app.js',

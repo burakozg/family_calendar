@@ -62,6 +62,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .event-name{font-size:14px;font-weight:500;}
 .event-meta{font-size:12px;color:var(--text3);margin-top:1px;}
 .event-del{background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;padding:4px;flex-shrink:0;}
+.later-toggle{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:11px;margin-top:2px;background:none;border:1px dashed var(--border);border-radius:var(--radius-sm);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;}
+.later-caret{color:var(--text3);font-size:11px;}
 .section-label{font-size:13px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 8px;}
 .week-toggle{display:flex;gap:5px;background:var(--surface2);padding:4px;border-radius:var(--radius-sm);margin-bottom:8px;}
 .wk-btn{flex:1;padding:11px 0;border:none;background:none;border-radius:var(--radius-sm);font-size:14px;font-weight:600;color:var(--text2);cursor:pointer;}
@@ -190,6 +192,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
   <!-- RECIPES TAB -->
   <div class="panel" id="panel-recipes">
+    <!-- One setting for the whole tab — scan, upload and link import all read it.
+         It sits above every input so its scope is obvious; unchecked by default,
+         i.e. the recipe is stored in whatever language it was written in. -->
+    <div class="card"><div class="card-body" style="padding-top:12px;padding-bottom:12px;">
+      <label class="check"><input type="checkbox" id="rec-translate" /> Translate to English (default: keep the original language)</label>
+    </div></div>
     <div class="scan-btns">
       <label class="scan-btn">
         <span class="big">📷</span>
@@ -202,12 +210,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <input type="file" id="upload-file" accept="image/*" hidden />
       </label>
     </div>
-    <div class="hint" style="text-align:center;">Queued to the home server — AI reads it (original language kept) and saves it to the library, flagged for review in the home Recipe editor. A likely duplicate lands under Pending imports instead.</div>
+    <div class="hint" style="text-align:center;">Queued to the home server — AI reads it and saves it to the library, flagged for review in the home Recipe editor. A likely duplicate lands under Pending imports instead.</div>
     <div class="hint" id="scan-status" style="display:none;text-align:center;font-weight:600;"></div>
     <div class="section-label" style="text-align:center;">or import from a link</div>
     <div class="card"><div class="card-body">
       <div class="field"><textarea id="ri-input" placeholder="Paste a recipe link — a website or an Instagram reel — or the full recipe text…"></textarea></div>
-      <label class="check" style="margin-bottom:10px;"><input type="checkbox" id="ri-translate" /> Translate to English (default: keep the original language)</label>
       <button class="submit-btn" id="ri-submit">Import recipe</button>
       <div class="hint">Queued to the home server — extracted &amp; saved shortly. Works with recipe sites and Instagram reels that have the recipe in the caption.</div>
     </div></div>
