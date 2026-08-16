@@ -49,8 +49,11 @@ async def patch_meal_plan(request: Request):
 
 # ── AI planner ────────────────────────────────────────────────────────────────
 def _recipe_option_line(e: dict) -> str:
-    """One compact candidate line for the meal-planning assistant."""
-    tags  = ", ".join(e.get("tags", [])) if isinstance(e.get("tags"), list) else (e.get("tags") or "")
+    """One compact candidate line for the meal-planning assistant. Tags are
+    stringified defensively: a single recipe with odd tags (an import once saved
+    them as {value, source} dicts) must not take the whole planner down."""
+    raw   = e.get("tags")
+    tags  = ", ".join(t for t in raw if isinstance(t, str)) if isinstance(raw, list) else str(raw or "")
     total = (e.get("prep_time_min", 0) or 0) + (e.get("cook_time_min", 0) or 0)
     bits  = [e.get("cuisine", ""), tags]
     if total: bits.append(f"{total} min")

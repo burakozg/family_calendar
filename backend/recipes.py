@@ -51,6 +51,18 @@ def _unwrap(f):
     """Draft fields are {value, source}; return the bare value (or f if not wrapped)."""
     return f.get("value") if isinstance(f, dict) and "value" in f and "source" in f else f
 
+def _str_list(v) -> list:
+    """A plain list of strings from a draft's string-array field. The extractor
+    wraps list *elements* individually ([{value, source}, …]) as often as it wraps
+    the list itself, so unwrapping only the outer field leaves dicts in the list —
+    which then blow up every consumer that joins them (the meal planner did)."""
+    out = []
+    for item in (_unwrap(v) or []):
+        s = str(_unwrap(item) or "").strip()
+        if s:
+            out.append(s)
+    return out
+
 def _to_int(v) -> int:
     try:
         return int(v)
@@ -79,15 +91,15 @@ def _recipe_from_draft(draft: dict, source: dict) -> dict:
         "description":   str(g("description") or ""),
         "cuisine":       str(g("cuisine") or ""),
         "course":        _valid_course(g("course")),
-        "tags":          g("tags") or [],
-        "meal_type":     g("meal_type") or [],
-        "dietary":       g("dietary") or [],
+        "tags":          _str_list(draft.get("tags")),
+        "meal_type":     _str_list(draft.get("meal_type")),
+        "dietary":       _str_list(draft.get("dietary")),
         "servings":      _to_int(g("servings")),
         "difficulty":    _to_int(g("difficulty")),
         "prep_time_min": _to_int(g("prep_time_min")),
         "cook_time_min": _to_int(g("cook_time_min")),
         "ingredients":   [ing(i) for i in (g("ingredients") or [])],
-        "equipment":     g("equipment") or [],
+        "equipment":     _str_list(draft.get("equipment")),
         "steps":         [step(s) for s in (g("steps") or [])],
         "notes":         str(g("notes") or ""),
         "source":        source,
@@ -106,6 +118,17 @@ def _fold(s) -> str:
 def _draft_name(draft: dict) -> str:
     return str(_unwrap(draft.get("name")) or "")
 
+def _draft_source(draft: dict) -> dict:
+    """A draft's `source` as plain strings. Provenance nests: the field itself may
+    be wrapped *and* so may each of its sub-fields, so unwrap both levels — passing
+    a half-unwrapped {"type": {"value": …}} on to find_similar used to 500 the
+    photo-scan route with `'dict' object has no attribute 'strip'`."""
+    src = _unwrap(draft.get("source"))
+    if not isinstance(src, dict):
+        return {}
+    return {"type":  str(_unwrap(src.get("type")) or ""),
+            "value": str(_unwrap(src.get("value")) or "")}
+
 def _draft_ingredient_names(draft: dict) -> list:
     out = []
     for i in (_unwrap(draft.get("ingredients")) or []):
@@ -120,8 +143,8 @@ def find_similar(name: str, source: dict, ingredients=None, limit: int = 3) -> l
     strongest-first: (1) same source identity (notion page title / url), (2)
     folded-name ratio ≥ 0.75, (3) name ratio ≥ 0.6 AND ingredient Jaccard ≥ 0.5."""
     source = source or {}
-    stype  = (source.get("type") or "").strip().lower()
-    svalue = (source.get("value") or "").strip()
+    stype  = str(source.get("type") or "").strip().lower()    # str(): callers have
+    svalue = str(source.get("value") or "").strip()           # handed us dicts before
     nfold  = _fold(name)
     ings   = {_fold(i) for i in (ingredients or []) if str(i).strip()}
     out = []
@@ -397,7 +420,8 @@ async def _import_recipe_photo(p: dict):
         return
     media = p.get("media") or "image/jpeg"
     ext   = "png" if "png" in media else "jpg"
-    draft  = await _ai_extract_recipe_image([(data, media, ext)], bool(p.get("translate")))
+    draft  = await _ai_extract_recipe_image([(data, media, ext)], bool(p.get("translate")),
+                                            action="recipe.photo")
     recipe = _recipe_from_draft(draft, {"type": "photo", "value": ""})
     who = str(p.get("who") or "")
     recipe["log"]["entered_by"] = who
@@ -631,7 +655,7 @@ async def extract_recipe(request: Request):
     except Exception:
         raise HTTPException(500, "Couldn't read a recipe from that photo")
     log_event("import", "recipe.extract_photo", "Extracted a recipe draft from a photo", detail={"photo_id": photo_id})
-    matches = find_similar(_draft_name(draft), _unwrap(draft.get("source")) or {},
+    matches = find_similar(_draft_name(draft), _draft_source(draft),
                            _draft_ingredient_names(draft))
     return {"draft": draft, "photo_id": photo_id, "matches": matches}
 
@@ -829,16 +853,23 @@ def _page_images(lookup: dict, page_name: str, text: str, max_images: int) -> li
             break
     return out
 
-async def _ai_extract_recipe_image(images: list, translate: bool = False) -> dict:
+async def _ai_extract_recipe_image(images: list, translate: bool = False,
+                                   action: str = "recipe.import_notion") -> dict:
     """Vision extraction for a screenshot-style page: send the image(s) + a short
-    prompt through the same EXTRACT_SYSTEM used by the photo route."""
+    prompt through the same EXTRACT_SYSTEM used by the photo route.
+
+    Shares EXTRACT_MAX_TOKENS with that route: the reply is one recipe in the same
+    provenance-wrapped schema either way, so a smaller cap here just truncates the
+    JSON mid-string on a dense recipe card (a whole printed meal-kit sheet is ~18
+    ingredients and 6 steps — well past 2000 tokens). `action` labels the log entry
+    with the flow that called us, since several do."""
     content = [{"type": "image", "source": {"type": "base64", "media_type": mt,
                                             "data": base64.b64encode(d).decode()}}
                for d, mt, _ in images]
     content.append({"type": "text", "text": "Extract this recipe from the screenshot(s)."})
     raw = await ai.complete(extract_system(translate), [{"role": "user", "content": content}],
-                            2000, action="recipe.import_notion", timeout=90)
-    return parse_ai_json(raw, "recipe.import_notion")
+                            EXTRACT_MAX_TOKENS, action=action, timeout=90)
+    return parse_ai_json(raw, action)
 
 @router.post("/recipes/import-notion")
 async def import_notion(request: Request):

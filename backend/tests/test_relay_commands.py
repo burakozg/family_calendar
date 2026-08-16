@@ -220,7 +220,7 @@ def test_drain_recipe_photo_saves_flagged_for_review(monkeypatch, tmp_path):
     import base64
     import recipes
 
-    async def fake_extract(images, translate=False):
+    async def fake_extract(images, translate=False, action="recipe.import_notion"):
         assert not translate
         return {"name": "Fırında Karnabahar", "description": "",
                 "ingredients": [{"item": "karnabahar", "amount": "1", "unit": ""}],
@@ -251,7 +251,7 @@ def test_drain_recipe_photo_duplicate_goes_to_pending(monkeypatch):
                                                 "ingredients": [], "steps": []})
     storage.rebuild_recipe_index()
 
-    async def fake_extract(images, translate=False):
+    async def fake_extract(images, translate=False, action="recipe.import_notion"):
         return {"name": "Mercimek Corbasi", "ingredients": [], "steps": []}
 
     monkeypatch.setattr(recipes, "_ai_extract_recipe_image", fake_extract)
