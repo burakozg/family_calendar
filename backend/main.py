@@ -16,9 +16,9 @@ The backend is split into focused modules (see ARCHITECTURE.md):
   recipes.py        recipe CRUD + AI extraction/import pipelines (routes)
   mailsync.py       mailbox.org mail/calendar sync (MAILSYNC_DESIGN.md)
 
-main.py keeps: app setup + middleware (Host allowlist, body cap, X-Who),
-settings/events routes, logs/display/SSE routes, the backup loop, startup,
-and static mounts.
+main.py keeps: app setup + middleware (Host allowlist, body cap, X-Who), the
+unhandled-exception logger, settings/events routes, logs/display/SSE routes,
+the backup loop, startup, and static mounts.
 
 Run:  uvicorn main:app --host 0.0.0.0 --port 8000
 Deps: pip install -r requirements.txt
@@ -28,6 +28,7 @@ import ipaddress
 import io
 import json
 import os
+import traceback
 import zipfile
 from datetime import date
 from pathlib import Path
@@ -115,6 +116,24 @@ async def _capture_initiator(request: Request, call_next):
         resp.headers.setdefault("Content-Security-Policy",
                                 f"frame-ancestors 'self' {EMBED_ORIGIN}")
     return resp
+
+@app.exception_handler(Exception)
+async def _log_unhandled(request: Request, exc: Exception):
+    """Record unhandled exceptions in the activity log before they become a bare
+    500. Without this an app bug is invisible to the admin Logs UI — the frontend
+    only ever shows its own generic toast, and the traceback lives in `docker logs`
+    where nobody looks. (A single malformed recipe once 500'd every meal-planner
+    call for days with no log line at all.)
+
+    Starlette re-raises after this returns, so uvicorn still prints the traceback;
+    the response body stays generic on purpose — internals aren't for the client."""
+    log_event("system", "unhandled", f"{request.method} {request.url.path} failed: "
+                                     f"{type(exc).__name__}: {exc}",
+              level="error",
+              detail={"path": request.url.path, "method": request.method,
+                      "type": type(exc).__name__,
+                      "traceback": traceback.format_exc()[-4000:]})
+    return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
 
 @app.get("/healthz")
 def healthz():
