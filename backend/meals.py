@@ -89,6 +89,7 @@ def _planner_options(include_ai: bool):
 
 
 DAYS7 = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+_DAY_KEYS = {d.lower() for d in DAYS7}
 
 def _meal_prompts(settings: dict) -> dict:
     """Effective meal-planner prompts: settings values, falling back to defaults."""
@@ -115,10 +116,48 @@ def _plan_lines(plan: list) -> str:
     return "\n".join(out)
 
 
+def _align_to_days(plan):
+    """Order the reply by the day each entry names, then drop the label.
+
+    Keeping a bare 7-element array lined up with a day list given in prose is
+    where smaller models drift: measured against the household's library, the
+    same week came back with a different set of skipped days on every run, and
+    twice skipped a day that had no events at all. Asking for the day in each
+    object and re-ordering here made it stable. Falls back to position when the
+    label is missing or unrecognised, so a model that ignores the field — or an
+    older prompt that never asked for it — behaves exactly as before."""
+    if not isinstance(plan, list):
+        return plan
+    by_day = {}
+    for entry in plan:
+        if isinstance(entry, dict):
+            key = str(entry.get("day", "")).strip().lower()
+            if key in _DAY_KEYS and key not in by_day:
+                by_day[key] = entry
+    out = []
+    for i, day in enumerate(DAYS7):
+        entry = by_day.get(day.lower())
+        if entry is None:
+            entry = plan[i] if i < len(plan) and isinstance(plan[i], dict) else {}
+        entry = {k: v for k, v in entry.items() if k != "day"}
+        if isinstance(entry.get("id"), str):
+            entry["id"] = _clean_id(entry["id"])
+        out.append(entry)
+    return out
+
+
+def _clean_id(rid: str) -> str:
+    """Strip the brackets some models copy along with the id. Library options are
+    rendered as `- [chicken-pie] Chicken pie`, and a model that echoes `[chicken-pie]`
+    yields a plan whose ids match no recipe — the day still shows its dish, but the
+    link to the recipe silently goes nowhere."""
+    return rid.strip().lstrip("[").rstrip("]").strip()
+
+
 async def _meal_llm(system: str, user: str, action: str = "meal.plan") -> list:
     """Shared LLM call for meal planning; returns the parsed JSON plan."""
     raw = await ai.complete(system, [{"role": "user", "content": user}], 1500, action=action)
-    return parse_ai_json(raw, action)
+    return _align_to_days(parse_ai_json(raw, action))
 
 
 @router.get("/meals/prompts")
