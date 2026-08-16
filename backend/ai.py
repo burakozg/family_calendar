@@ -35,10 +35,13 @@ PROVIDERS = ("anthropic", "openai", "mistral", "openrouter")
 # so the picker follows Mistral's own version rollovers.
 # OpenRouter is a gateway, not a lab: one key reaches every lab's models, billed
 # in one place. Its entries are therefore NOT a second copy of the catalogue —
-# they're the models a household can't otherwise reach (Gemini, Qwen, Grok), plus
-# the app's own default so an OpenRouter-only household still gets it. Its ids are
-# `vendor/model` and are pinned by name, not `-latest`, because OpenRouter keeps
-# old ids working.
+# they're the models a household can't otherwise reach (Qwen), plus the app's own
+# default so an OpenRouter-only household still gets it. Its ids are `vendor/model`
+# and are pinned by name, not `-latest`, because OpenRouter keeps old ids working.
+# Two families are deliberately absent: DeepSeek publishes nothing multimodal on
+# OpenRouter (all 14 ids are text-in only, so they fail the invariant above), and
+# Kimi/Moonshot spends its budget on `reasoning` and returns empty `content` on a
+# prompt this size often enough to be unusable as a household default.
 #
 # WHAT THE MODEL ACTUALLY DOES here — one pick serves every feature, so `rec`
 # marks the models that cover the whole spread, not the strongest at any one:
@@ -67,14 +70,11 @@ AI_MODELS = [
     {"id": "anthropic/claude-sonnet-4.6", "provider": "openrouter",
      "label": "Claude Sonnet 4.6 (OpenRouter)",     "cost": 2,
      "rec": "the app default, on one shared key"},
-    {"id": "google/gemini-3.5-flash-lite", "provider": "openrouter",
-     "label": "Gemini 3.5 Flash Lite (OpenRouter)", "cost": 1},
-    {"id": "google/gemini-3.6-flash",      "provider": "openrouter",
-     "label": "Gemini 3.6 Flash (OpenRouter)",      "cost": 2},
     {"id": "qwen/qwen3-vl-30b-a3b-instruct", "provider": "openrouter",
      "label": "Qwen3 VL 30B (OpenRouter)",          "cost": 1},
-    {"id": "x-ai/grok-4.5",                "provider": "openrouter",
-     "label": "Grok 4.5 (OpenRouter)",              "cost": 2},
+    {"id": "qwen/qwen3-vl-235b-a22b-instruct", "provider": "openrouter",
+     "label": "Qwen3 VL 235B (OpenRouter)",         "cost": 1,
+     "rec": "cheapest one that plans a week correctly"},
 ]
 _BY_ID = {m["id"]: m for m in AI_MODELS}
 DEFAULT_MODEL_ID = AI_MODEL   # the app's historical default (Claude Sonnet 4.6)

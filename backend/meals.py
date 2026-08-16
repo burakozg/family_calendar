@@ -154,9 +154,17 @@ def _clean_id(rid: str) -> str:
     return rid.strip().lstrip("[").rstrip("]").strip()
 
 
+# A 7-day plan is only a few hundred tokens of JSON, but reasoning-capable models
+# spend the same budget thinking first and then have nothing left to answer with —
+# at 1500 they returned empty content on most attempts, and the same call succeeded
+# once the ceiling was raised. Models that don't reason stop at end_turn and are
+# billed for what they actually emit, so the headroom is close to free.
+PLAN_MAX_TOKENS = 6000
+
+
 async def _meal_llm(system: str, user: str, action: str = "meal.plan") -> list:
     """Shared LLM call for meal planning; returns the parsed JSON plan."""
-    raw = await ai.complete(system, [{"role": "user", "content": user}], 1500, action=action)
+    raw = await ai.complete(system, [{"role": "user", "content": user}], PLAN_MAX_TOKENS, action=action)
     return _align_to_days(parse_ai_json(raw, action))
 
 
