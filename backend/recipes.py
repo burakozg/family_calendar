@@ -172,7 +172,13 @@ def find_similar(name: str, source: dict, ingredients=None, limit: int = 3) -> l
     return out[:limit]
 
 # ── Pending import drafts (F8c) ───────────────────────────────────────────────
-_PENDING_META = {"pendingId", "matchId", "matchName", "matchScore", "created", "who"}
+_PENDING_META = {"pendingId", "matchId", "matchName", "matchScore", "created", "who",
+                 "kind", "proposed"}
+# Two things wait under Pending imports, told apart by `kind`: a "duplicate" (this
+# looks like a recipe you already have — merge or keep both) and a "split" (this one
+# page looks like two dishes — save both or keep it as one). Items written before
+# `kind` existed have no such key, so absent reads as "duplicate".
+PENDING_DUPLICATE, PENDING_SPLIT = "duplicate", "split"
 # Fields the merge UI can overwrite (id/log/rating are always preserved; photos
 # are always unioned). "time" is a pseudo-field covering the three time keys.
 _MERGE_FIELDS = {"name", "description", "ingredients", "steps", "notes", "variations",
@@ -184,12 +190,47 @@ def _queue_pending(recipe: dict, match: dict, who: str) -> str:
     write lock. Returns the pendingId."""
     pid = uuid.uuid4().hex[:12]
     draft = dict(recipe)
-    draft.update({"pendingId": pid, "matchId": match.get("id", ""),
+    draft.update({"pendingId": pid, "kind": PENDING_DUPLICATE, "matchId": match.get("id", ""),
                   "matchName": match.get("name", ""), "matchScore": match.get("score"),
                   "created": datetime.now().isoformat(timespec="seconds"),
                   "who": who or recipe.get("log", {}).get("entered_by", "")})
     write_pending_recipe(pid, draft)
     return pid
+
+
+def _queue_split(pid: str, recipe: dict, main: dict, side: dict, who: str) -> str:
+    """Queue a two-dish proposal for confirmation. The combined recipe stays at the
+    top level, so "keep it as one" is just the existing create path with no special
+    case; the two halves ride along under `proposed`. Caller holds the write lock."""
+    draft = dict(recipe)
+    draft.update({"pendingId": pid, "kind": PENDING_SPLIT, "proposed": [main, side],
+                  "matchId": "", "matchName": "", "matchScore": None,
+                  "created": datetime.now().isoformat(timespec="seconds"),
+                  "who": who or recipe.get("log", {}).get("entered_by", "")})
+    write_pending_recipe(pid, draft)
+    return pid
+
+
+def _save_split_half(dish: dict, other_name: str, photos: list, who: str) -> dict:
+    """Save one half of an accepted split. Caller holds the write lock.
+
+    The pairing is recorded as a line in `notes` rather than a schema field: the two
+    are ordinary recipes everywhere else, and nothing in the app follows a recipe →
+    recipe reference. Both halves keep the source photo — it shows the whole sheet."""
+    dish = dict(dish)
+    dish["id"] = _unique_recipe_id(dish.get("name", "recipe"))
+    dish["needs_review"] = True
+    _coerce_course(dish)
+    if other_name:
+        line  = f"Serve with: {other_name}"
+        notes = (dish.get("notes") or "").strip()
+        dish["notes"] = notes if line in notes else f"{notes}\n{line}".strip()
+    dish.setdefault("log", {"entered_by": who, "entered_at": date.today().isoformat()})
+    if photos:
+        dish["photos"] = list(photos)
+    write_recipe_file(dish["id"], dish)
+    _upsert_index(dish)
+    return dish
 
 # ── SSRF-guarded page fetch ───────────────────────────────────────────────────
 def _host_is_public(host: str) -> bool:
@@ -377,6 +418,113 @@ async def _ai_extract_recipe_text(text: str, translate: bool = False) -> dict:
                             EXTRACT_MAX_TOKENS, action="recipe.extract_text", timeout=60)
     return parse_ai_json(raw, "recipe.extract_text")
 
+
+# ── Splitting a meal-kit sheet into its two dishes (F8d) ──────────────────────
+# Hello Fresh and its like put a main and its side on one page: one ingredient
+# table, one method whose steps interleave in time. Read as a single recipe the
+# side is unfindable on its own and the main's ingredients are wrong for any other
+# pairing. This runs as a SECOND pass over the already-extracted JSON — small in,
+# small out, no second look at the image — so the vision prompt, which is tuned
+# and easily destabilised, stays exactly as it is.
+SPLIT_SYSTEM = (
+    "You are given one recipe that was read from a single page. Decide whether that page "
+    "actually describes TWO dishes, cooked together and served as one meal: a main course "
+    "and its accompaniment (a salad, a potato or grain side, a vegetable side).\n\n"
+    "Answer with JSON only.\n"
+    'One dish: {"split": false}\n'
+    'Two dishes: {"split": true, "main": {...}, "side": {...}}\n\n'
+    "main and side each take these keys: name, description, course, ingredients (array of "
+    "{amount, unit, item, notes}), steps (array of {text}), equipment (array), tags (array), "
+    "prep_time_min, cook_time_min, notes.\n\n"
+    "Each dish must be cookable by someone who cannot see the other one:\n"
+    '- course is "main" for the main dish, "side" for the accompaniment.\n'
+    "- Divide the ingredients between them. Give both a copy only of what is genuinely used "
+    "in both (oil, salt, pepper, water), split into sensible amounts.\n"
+    "- The steps on the page are interleaved: one dish roasts while the other is prepared. "
+    "Rewrite each dish's steps to read as a complete method on its own, keeping the timing "
+    'that matters — "while the potatoes roast" becomes "roast for 25 minutes". A step that '
+    "plates or serves both dishes is rewritten for each rather than dropped.\n"
+    "- Keep the original language, and name each dish for what it is.\n"
+    '- Answer {"split": false} for one dish, when the second part is only a sauce, dressing, '
+    "garnish or topping, or when the two do not come apart cleanly. Answering false is always "
+    "safe; a wrong split is not.\n"
+    "Output no prose and no markdown — just the JSON object."
+)
+
+# Below these a two-dish page is implausible, and the call is skipped.
+SPLIT_MIN_INGREDIENTS = 6
+SPLIT_MIN_STEPS       = 3
+
+
+def _splittable(recipe: dict) -> bool:
+    return (len(recipe.get("ingredients") or []) >= SPLIT_MIN_INGREDIENTS
+            and len(recipe.get("steps") or []) >= SPLIT_MIN_STEPS)
+
+
+def _dish_from_split(original: dict, part: dict, course: str) -> dict:
+    """One proposed dish as a full recipe: the model's fields laid over the original,
+    so cuisine, source, servings, difficulty and provenance carry across."""
+    dish = dict(original)
+    dish.pop("id", None)
+    dish.pop("photos", None)                     # attached at save time, to both halves
+    dish["name"]        = str(part.get("name") or "").strip()
+    dish["description"] = str(part.get("description") or "")
+    dish["course"]      = _valid_course(part.get("course")) or course
+    dish["notes"]       = str(part.get("notes") or "")
+    dish["tags"]        = _str_list(part.get("tags")) or list(original.get("tags") or [])
+    dish["equipment"]   = _str_list(part.get("equipment"))
+    dish["ingredients"] = [{"amount": str(i.get("amount") or ""), "unit": str(i.get("unit") or ""),
+                            "item": str(i.get("item") or ""), "notes": str(i.get("notes") or ""),
+                            "category": str(i.get("category") or "")}
+                           for i in (part.get("ingredients") or []) if isinstance(i, dict)]
+    dish["steps"]       = [{"text": str(s.get("text") or ""),
+                            "duration_min": _to_int(s.get("duration_min"))}
+                           for s in (part.get("steps") or []) if isinstance(s, dict)]
+    for k in ("prep_time_min", "cook_time_min"):
+        if part.get(k) is not None:
+            dish[k] = _to_int(part.get(k))
+    return dish
+
+
+async def _propose_split(recipe: dict):
+    """Ask whether this recipe is really two dishes; return (main, side) or None.
+
+    Never raises. The import it belongs to has already succeeded by this point, and
+    the relay retries a failed command from the top — letting a split failure escape
+    would re-run the whole extraction, image and all, to chase an optional extra."""
+    if not _splittable(recipe):
+        return None
+    payload = {k: recipe.get(k) for k in ("name", "description", "cuisine", "servings",
+                                          "ingredients", "steps", "equipment", "notes")}
+    try:
+        raw = await ai.complete(SPLIT_SYSTEM,
+                                [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                                EXTRACT_MAX_TOKENS, action="recipe.split", timeout=60)
+        out = parse_ai_json(raw, "recipe.split")
+        if not isinstance(out, dict) or not out.get("split"):
+            return None
+        main, side = out.get("main"), out.get("side")
+        if not (isinstance(main, dict) and isinstance(side, dict)):
+            return None
+        main_r, side_r = _dish_from_split(recipe, main, "main"), _dish_from_split(recipe, side, "side")
+        # A half with no name or no ingredients is not a dish, and two halves with the
+        # same name are one dish counted twice — in both cases keep the original.
+        if not (main_r["name"] and side_r["name"]) or _fold(main_r["name"]) == _fold(side_r["name"]):
+            return None
+        # A half with no ingredients or no method is not a dish. The household's
+        # 30B model divides the ingredient table correctly and then returns both
+        # step lists empty, which would have proposed two uncookable recipes.
+        if not (main_r["ingredients"] and side_r["ingredients"]):
+            return None
+        if not (main_r["steps"] and side_r["steps"]):
+            return None
+        return main_r, side_r
+    except Exception as e:
+        log_event("import", "recipe.split", f"Split check failed, keeping one recipe: {e}",
+                  level="warn", detail={"name": recipe.get("name", "")})
+        return None
+
+
 async def _import_recipe(p: dict):
     """Fetch (URL) or take (text) a recipe, AI-extract it, and save it to the library.
     Used by the relay drain; reuses the same SSRF-guarded fetch + extractor as the
@@ -427,12 +575,26 @@ async def _import_recipe_photo(p: dict):
     recipe["log"]["entered_by"] = who
     matches = find_similar(recipe.get("name", ""), recipe.get("source") or {},
                            [i.get("item", "") for i in recipe.get("ingredients", [])])
+    # Only worth asking about a split when this isn't already a known recipe: a
+    # duplicate is the more useful thing to say, and it saves the extra call.
+    split = None if matches else await _propose_split(recipe)
     async with _write_lock:
         if matches:
             pid = _queue_pending(recipe, matches[0], who)
             log_event("import", "recipe.photo",
                       f"Phone scan '{recipe.get('name', '')}' matches '{matches[0]['name']}' — queued for merge",
                       who=who, detail={"pendingId": pid, "matchId": matches[0]["id"]})
+        elif split:
+            main, side = split
+            pid = uuid.uuid4().hex[:12]
+            # The photo is filed under the pendingId: the two dishes get their ids
+            # only once a human accepts, and both then point at this one image.
+            recipe["id"] = pid
+            _attach_photo_bytes(recipe, data, ext, who)
+            _queue_split(pid, recipe, main, side, who)
+            log_event("import", "recipe.photo",
+                      f"Phone scan '{recipe.get('name', '')}' looks like two dishes — queued to confirm",
+                      who=who, detail={"pendingId": pid, "main": main["name"], "side": side["name"]})
         else:
             recipe["id"] = _unique_recipe_id(recipe.get("name", "recipe"))
             recipe["needs_review"] = True
@@ -467,13 +629,21 @@ def similar_recipes(name: str = "", source_type: str = "", source_value: str = "
 
 @router.get("/recipes/pending")
 def get_pending():
-    """Summary rows for the queued import drafts awaiting merge (F8c)."""
+    """Summary rows for the queued import drafts awaiting a decision (F8c/F8d).
+
+    `kind` tells the two apart — "duplicate" wants a merge, "split" wants a yes/no on
+    two dishes — and a split row carries the proposed names so the banner can show
+    them without a second fetch."""
     rows = []
     for d in list_pending_recipes():
-        rows.append({"pendingId": d.get("pendingId", ""), "name": d.get("name", ""),
-                     "matchId": d.get("matchId", ""), "matchName": d.get("matchName", ""),
-                     "matchScore": d.get("matchScore"), "created": d.get("created", ""),
-                     "who": d.get("who", "")})
+        kind = d.get("kind") or PENDING_DUPLICATE
+        row  = {"pendingId": d.get("pendingId", ""), "name": d.get("name", ""), "kind": kind,
+                "matchId": d.get("matchId", ""), "matchName": d.get("matchName", ""),
+                "matchScore": d.get("matchScore"), "created": d.get("created", ""),
+                "who": d.get("who", "")}
+        if kind == PENDING_SPLIT:
+            row["proposedNames"] = [str((x or {}).get("name", "")) for x in (d.get("proposed") or [])]
+        rows.append(row)
     rows.sort(key=lambda r: r.get("created", ""))
     return rows
 
@@ -563,7 +733,53 @@ async def resolve_pending(pid: str, request: Request):
                   detail={"pendingId": pid, "action": "merge", "id": matchId, "fields": fields})
         return {"ok": True, "action": "merge", "id": matchId, "fields": fields}
 
-    raise HTTPException(400, "Unknown action (expected merge / create / discard)")
+    if action in ("split_both", "split_none"):
+        if (draft.get("kind") or PENDING_DUPLICATE) != PENDING_SPLIT:
+            raise HTTPException(400, "This pending import is not a split proposal")
+
+        if action == "split_none":                  # keep the page as one recipe
+            async with _write_lock:
+                recipe_draft["id"] = _unique_recipe_id(recipe_draft.get("name", "recipe"))
+                recipe_draft["needs_review"] = True
+                _coerce_course(recipe_draft)
+                write_recipe_file(recipe_draft["id"], recipe_draft)
+                _upsert_index(recipe_draft)
+                delete_pending_recipe(pid)          # same lock: resolve is all-or-nothing
+                build_display_cache()
+            await broadcast("update", {"section": "recipes"})
+            log_event("import", "recipe.split", f"Kept '{recipe_draft.get('name', '')}' as one recipe",
+                      detail={"pendingId": pid, "action": action, "id": recipe_draft["id"]})
+            return {"ok": True, "action": action, "ids": [recipe_draft["id"]]}
+
+        proposed = draft.get("proposed") or []
+        if len(proposed) != 2:
+            raise HTTPException(400, "This split proposal is incomplete")
+        main, side   = proposed
+        photos       = recipe_draft.get("photos") or []
+        saved, queued = [], []
+        async with _write_lock:
+            for dish, other in ((main, side), (side, main)):
+                # A half that duplicates something already in the library joins the
+                # ordinary merge queue instead of landing as a second copy.
+                dup = find_similar(dish.get("name", ""), dish.get("source") or {},
+                                   [i.get("item", "") for i in (dish.get("ingredients") or [])],
+                                   limit=1)
+                if dup:
+                    queued.append(_queue_pending(dish, dup[0], draft.get("who", "")))
+                else:
+                    saved.append(_save_split_half(dish, other.get("name", ""), photos,
+                                                  draft.get("who", ""))["id"])
+            delete_pending_recipe(pid)              # same lock: resolve is all-or-nothing
+            build_display_cache()
+        await broadcast("update", {"section": "recipes"})
+        log_event("import", "recipe.split",
+                  f"Split '{draft.get('name', '')}' into {len(saved)} recipe(s)"
+                  + (f", {len(queued)} queued for merge" if queued else ""),
+                  detail={"pendingId": pid, "action": action, "ids": saved, "pending": queued})
+        return {"ok": True, "action": action, "ids": saved, "pendingIds": queued}
+
+    raise HTTPException(400, "Unknown action (expected merge / create / discard / "
+                             "split_both / split_none)")
 
 @router.get("/recipes/{recipe_id}")
 def get_recipe(recipe_id: str):

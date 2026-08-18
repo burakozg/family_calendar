@@ -1673,16 +1673,89 @@ async function loadPending() {
   try { rows = await (await fetch(`${API}/recipes/pending`)).json(); } catch (e) { return; }
   if (!rows.length) { banner.style.display = 'none'; banner.innerHTML = ''; return; }
   banner.style.display = 'block';
+  const splits = rows.filter(r => r.kind === 'split').length;
   banner.innerHTML = `<div style="padding:10px 14px;border:1px solid var(--accent);background:var(--accent-bg);border-radius:var(--radius-sm);">
     <div style="font-weight:600;">Pending imports (${rows.length})</div>
-    <div style="font-size:12px;color:var(--text2);margin:2px 0 4px;">Each matches an existing recipe — compare &amp; merge instead of duplicating.</div>
-    ${rows.map(r => `<div class="pending-item">
+    <div style="font-size:12px;color:var(--text2);margin:2px 0 4px;">${
+      splits === rows.length ? 'Each looks like two dishes on one page — confirm the split or keep it as one recipe.'
+      : splits ? 'Some match an existing recipe, some look like two dishes on one page.'
+      : 'Each matches an existing recipe — compare &amp; merge instead of duplicating.'}</div>
+    ${rows.map(r => r.kind === 'split' ? `<div class="pending-item">
+      <span class="pi-name">${shopEsc(r.name || '(untitled)')}</span>
+      <span class="pi-match">→ ${shopEsc((r.proposedNames || []).join('  +  '))}</span>
+      <button class="btn-add" onclick="openSplit('${shopEsc(r.pendingId)}')">Review split</button>
+    </div>` : `<div class="pending-item">
       <span class="pi-name">${shopEsc(r.name || '(untitled)')}</span>
       <span class="pi-match">↔ ${shopEsc(r.matchName || r.matchId)}</span>
       <button class="btn-add" onclick="openMerge('${shopEsc(r.pendingId)}')">Compare</button>
     </div>`).join('')}
   </div>`;
 }
+
+// Two dishes read off one page, shown side by side in the merge view's two columns —
+// the ingredient and step partition is the part most likely to be wrong, so it is what
+// the screen puts in front of you. No per-field picking here: the answer is both, one,
+// or neither.
+// Same {key, label, fmt} shape MERGE_ROWS uses, so mergeFmt() renders both screens.
+const SPLIT_ROWS = [
+  { key: 'name',        label: 'Name' },
+  { key: 'course',      label: 'Course',      fmt: 'course' },
+  { key: 'ingredients', label: 'Ingredients', fmt: 'ings' },
+  { key: 'steps',       label: 'Steps',       fmt: 'steps' },
+  { key: 'equipment',   label: 'Equipment',   fmt: 'csv' },
+  { key: 'time',        label: 'Prep/Cook/Inactive', fmt: 'time' },
+  { key: 'tags',        label: 'Tags',        fmt: 'csv' },
+  { key: 'notes',       label: 'Notes' },
+];
+
+async function openSplit(pid) {
+  const view = document.getElementById('recipe-merge-view');
+  document.getElementById('recipe-list-view').style.display = 'none';
+  document.getElementById('recipe-form-view').style.display = 'none';
+  view.style.display = 'block';
+  view.dataset.pid = pid;
+  view.innerHTML = '<div style="color:var(--text3);font-size:13px;">Loading…</div>';
+  let draft;
+  try {
+    draft = await (await fetch(`${API}/recipes/pending/${encodeURIComponent(pid)}`)).json();
+  } catch (e) { view.innerHTML = '<div style="color:var(--danger);">Could not load this pending import.</div>'; return; }
+  const [main, side] = draft.proposed || [];
+  if (!main || !side) { view.innerHTML = '<div style="color:var(--danger);">This split proposal is incomplete.</div>'; return; }
+
+  // Read-only: unlike the merge screen there is nothing to pick per field, so the
+  // columns don't take the clickable styling.
+  const cell = (r, row) => `<div class="merge-col" style="cursor:default;">${shopEsc(mergeFmt(r, row))}</div>`;
+  const rows = SPLIT_ROWS.map(row => `<div class="merge-row">
+      <div class="merge-lbl">${shopEsc(row.label)}</div>
+      ${cell(main, row)}${cell(side, row)}
+    </div>`).join('');
+
+  view.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <h3 style="margin:0;">Two dishes on one page?</h3>
+      <button class="btn-ghost" onclick="closeMerge()">Back</button>
+    </div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:10px;">
+      Read from <strong>${shopEsc(draft.name || '(untitled)')}</strong>. Check that each side
+      could be cooked on its own — the ingredients should be divided, not repeated, and each
+      method should stand alone. Both halves keep the photo and land flagged for review.
+    </div>
+    <div class="merge-row" style="font-weight:600;">
+      <div class="merge-lbl"></div>
+      <div class="merge-col" style="cursor:default;">Main</div>
+      <div class="merge-col" style="cursor:default;">Side</div>
+    </div>
+    ${rows}
+    <div id="merge-status" style="font-size:13px;margin-top:10px;"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+      <button class="btn-primary" onclick="saveSplitBoth()">Save both recipes</button>
+      <button class="btn-ghost" onclick="saveSplitAsOne()">Keep as one recipe</button>
+      <button class="btn-ghost" style="color:var(--danger);" onclick="discardPending()">Discard</button>
+    </div>`;
+}
+
+function saveSplitBoth() { _resolvePending({ action: 'split_both' }); }
+function saveSplitAsOne() { _resolvePending({ action: 'split_none' }); }
 
 async function openMerge(pid) {
   const view = document.getElementById('recipe-merge-view');
