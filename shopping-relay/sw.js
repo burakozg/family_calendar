@@ -2,7 +2,7 @@
 // Caches only the static app shell so the page loads instantly and works offline.
 // The list data (/list, /state) is never cached here — the page keeps its own
 // localStorage copy and handles offline/sync itself.
-const CACHE = 'shop-shell-v18';  // bumped: 3-month event split + years on dates; sturdier photo decode
+const CACHE = 'shop-shell-v19';  // bumped: serve app.js network-first (see the fetch handler)
 const SHELL = [
   '/',
   '/app.js',
@@ -39,7 +39,25 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Static assets: cache-first, then network (and cache the result).
+  // App code: network-first, like navigations. Cache-first is wrong for the one
+  // file that changes every release: a phone kept serving the previous app.js
+  // while loading the current markup, so the UI showed a new toggle whose code
+  // wasn't running and the flag it sets never reached the payload. The stale
+  // worker had no reason to update, and nothing on screen hinted at the split.
+  // Costs one request per launch when online; still fully offline-capable.
+  if (url.pathname === '/app.js') {
+    e.respondWith(
+      fetch(req).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy));
+        return res;
+      }).catch(() => caches.match(req))
+    );
+    return;
+  }
+
+  // Everything else in the shell (icons, manifest) is versioned by CACHE and
+  // changes rarely: cache-first, then network.
   e.respondWith(
     caches.match(req).then((hit) => hit || fetch(req).then((res) => {
       const copy = res.clone();
