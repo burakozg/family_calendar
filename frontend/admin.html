@@ -763,9 +763,13 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
       <div class="section-desc">How the assistant plans the week. The weekly prompt drives the first draft; you refine it from the Meals page.</div>
       <div class="card">
         <div class="field">
-          <label>AI model — used for all assistant features (planning, recipes, aisle tagging)</label>
+          <label>AI model for text — the weekly plan, recipe text &amp; link import, splitting a meal-kit sheet, aisle tagging</label>
           <select id="ai-model"></select>
-          <div class="section-desc" id="ai-model-note" style="margin:6px 0 0;">$ = cheaper, $$$$ = pricier. Recommended = a good balance of recipe-photo reading, meal planning and cost. Non-Claude models need their provider's key on the server (OPENAI_API_KEY, MISTRAL_API_KEY, or OPENROUTER_API_KEY — one key for the "(OpenRouter)" models).</div>
+        </div>
+        <div class="field">
+          <label>AI model for photos — reading a recipe off a photo or screenshot</label>
+          <select id="ai-vision-model"></select>
+          <div class="section-desc" id="ai-model-note" style="margin:6px 0 0;">$ = cheaper, $$$$ = pricier. Only models that can read images are offered for photos, so the two lists differ. Non-Claude models need their provider's key on the server (OPENAI_API_KEY, MISTRAL_API_KEY, or OPENROUTER_API_KEY — one key for the "(OpenRouter)" models).</div>
         </div>
         <div class="field">
           <label>Token usage — last 14 days</label>
@@ -2459,26 +2463,34 @@ async function renderAI() {
   // AI model picker — options from the backend registry (name + cost tier).
   try {
     const info = await (await fetch(`${API}/ai/models`)).json();
-    const sel = document.getElementById('ai-model');
-    const chosen = data.settings?.ai?.model || info.selected;
-    // Two groups: the ones that suit this app's mix of tasks (each carries its
-    // own `rec` reason from the backend registry), then everything else.
-    const opt = m => {
-      const off = !info.providers[m.provider];
-      return `<option value="${shopEsc(m.id)}"${m.id === chosen ? ' selected' : ''}>`
-        + `${shopEsc(m.label)} — ${COST_SIGNS(m.cost)}`
-        + `${m.rec ? ` · ${shopEsc(m.rec)}` : ''}${off ? ' (no API key)' : ''}</option>`;
+    // One picker per role. The photo picker lists only image-capable models — the
+    // backend refuses a text-only model there anyway, so offering one would just
+    // be a setting that silently doesn't take effect.
+    const fillPicker = (elId, chosen, rows, recKey) => {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      const opt = m => {
+        const off = !info.providers[m.provider];
+        return `<option value="${shopEsc(m.id)}"${m.id === chosen ? ' selected' : ''}>`
+          + `${shopEsc(m.label)} — ${COST_SIGNS(m.cost)}`
+          + `${m[recKey] ? ` · ${shopEsc(m[recKey])}` : ''}${off ? ' (no API key)' : ''}</option>`;
+      };
+      const group = (label, models) => models.length
+        ? `<optgroup label="${label}">${models.map(opt).join('')}</optgroup>` : '';
+      el.innerHTML = group('Recommended for this job', rows.filter(m => m[recKey]))
+                   + group('Other models',            rows.filter(m => !m[recKey]));
     };
-    const group = (label, models) => models.length
-      ? `<optgroup label="${label}">${models.map(opt).join('')}</optgroup>` : '';
-    sel.innerHTML = group('Recommended for this app', info.models.filter(m => m.rec))
-                  + group('Other models',            info.models.filter(m => !m.rec));
+    const sel = info.selected || {};
+    fillPicker('ai-model', data.settings?.ai?.model || sel.text,
+               info.models, 'recText');
+    fillPicker('ai-vision-model', data.settings?.ai?.visionModel || sel.vision,
+               info.models.filter(m => m.vision), 'recVision');
     const missing = Object.entries(info.providers).filter(([, ok]) => !ok).map(([p]) => p);
-    const legend = '$ = cheaper, $$$$ = pricier. Recommended = a good balance of recipe-photo '
-                 + 'reading, meal planning and cost; the rest work too.';
+    const legend = '$ = cheaper, $$$$ = pricier. Only models that can read images are '
+                 + 'offered for photos, so the two lists differ.';
     document.getElementById('ai-model-note').textContent = missing.length
       ? `${legend} No API key configured for: ${missing.join(', ')} — those models won't run until a key is set on the server.`
-      : `${legend} Applies to every AI feature.`;
+      : legend;
   } catch (e) { /* backend unreachable — leave the picker empty */ }
   await renderAIUsage();
   // Effective prompts = saved settings values, or the backend defaults.
@@ -2495,8 +2507,14 @@ async function renderAI() {
 function collectAI() {
   data.settings = data.settings || {};
   data.settings.familyName = document.getElementById('ai-family-name').value;
-  const modelSel = document.getElementById('ai-model');
-  if (modelSel && modelSel.value) data.settings.ai = { model: modelSel.value };
+  // Both keys are written together: this assignment replaces settings.ai wholesale,
+  // so dropping one here would silently wipe the other role's choice.
+  const modelSel  = document.getElementById('ai-model');
+  const visionSel = document.getElementById('ai-vision-model');
+  const prev = data.settings.ai || {};
+  const aiCfg = { model:       (modelSel  && modelSel.value)  || prev.model,
+                  visionModel: (visionSel && visionSel.value) || prev.visionModel };
+  if (aiCfg.model || aiCfg.visionModel) data.settings.ai = aiCfg;
   const recentW = parseInt(document.getElementById('mp-recent-weeks').value, 10);
   const staleW  = parseInt(document.getElementById('mp-stale-weeks').value, 10);
   data.settings.mealPlanner = {

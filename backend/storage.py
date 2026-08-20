@@ -101,7 +101,10 @@ DEFAULTS = {
             {"id": "kid",   "label": "Kid",   "bg": "#00ff00", "text": "#000000"},
         ],
         "display": {"theme": "light", "fontSize": "medium", "showHolidays": True},
-        "ai": {"model": "claude-sonnet-4-6"},   # provider/model for all AI features
+        # Two roles: `visionModel` runs anything that sends an image (recipe photo
+        # scans), `model` runs everything else (weekly plan, text import, tagging).
+        # A settings file with only `model` predates the split and uses it for both.
+        "ai": {"model": "claude-sonnet-4-6", "visionModel": "claude-sonnet-4-6"},
         "eventColors": {"birthday": "#ffff00", "recurring": "#000000", "holiday": "#ff0000",
                         "birthdayText": "#000000", "holidayText": "#ffffff"},
         "mealPlanner": {

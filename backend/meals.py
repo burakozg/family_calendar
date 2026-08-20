@@ -225,7 +225,7 @@ def _long_time_no_cook(week_start: date, library_names: set,
 @router.post("/meals/plan/generate")
 async def generate_meal_plan(request: Request):
     """Step 1 — create the week's recommended plan from the standing prompt + recipe library."""
-    ai.ensure_ready()
+    ai.ensure_ready(role="text")
     body        = await request.json()   # {weekSummary, userPrompt?, weekStart?}
     prompts     = _meal_prompts(read_settings())
     library     = _planner_options(include_ai=False)   # AI recipes only as fallback when too few human recipes
@@ -262,7 +262,7 @@ async def generate_meal_plan(request: Request):
 @router.post("/meals/plan/refine")
 async def refine_meal_plan(request: Request):
     """Step 2 — apply the user's change request to the current plan (a day or the whole week)."""
-    ai.ensure_ready()
+    ai.ensure_ready(role="text")
     body        = await request.json()   # {weekSummary, currentPlan, instruction}
     instruction = (body.get("instruction") or "").strip()
     if not instruction:

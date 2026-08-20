@@ -1,8 +1,11 @@
 """Provider-agnostic LLM layer. One place decides which model + provider every
-AI feature uses (meals, recipes, shopping), based on the model selected in
-`settings.ai.model`. Anthropic, OpenAI and Mistral are supported directly, plus
+AI feature uses (meals, recipes, shopping). The household picks two models, not one:
+`settings.ai.visionModel` for requests that carry an image and `settings.ai.model` for
+everything else — routed automatically from each request's own content, so a new
+image-sending caller cannot be pointed at a text-only model by forgetting a flag.
+Anthropic, OpenAI and Mistral are supported directly, plus
 OpenRouter as a gateway to everything else; the model registry below (name/version
-+ relative cost tier) is the single source of truth for the admin model picker.
++ relative cost tier + `vision`) is the single source of truth for the admin pickers.
 
 Model list current as of 2026-08 — Claude figures from the claude-api reference,
 OpenAI figures from platform.openai.com pricing, Mistral from mistral.ai/pricing/api,
@@ -25,65 +28,136 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 PROVIDERS = ("anthropic", "openai", "mistral", "openrouter")
 
 # provider, label (name + version), relative cost tier (1=cheapest … 4=priciest),
-# and an optional `rec` — a short "why this one" shown in the picker's
-# Recommended group (see WHAT THE MODEL ACTUALLY DOES below).
-# INVARIANT: every model here must be multimodal (accept image input) — recipe
-# photo extraction sends an image, so a text-only model would break that feature.
+# `vision` (accepts image input), and optional `recVision` / `recText` — a short
+# "why this one" shown in each picker's Recommended group.
+#
+# TWO ROLES, ONE REGISTRY. The household picks a model per role (see selected_model):
+#   vision — anything that sends an image: recipe photo scans, Notion screenshot pages.
+#   text   — everything else: the weekly plan, recipe text/link import, the meal-kit
+#            split, plus cheap high-volume jobs (aisle tagging, unit normalization).
+# INVARIANT: a row may serve the vision role only if `vision` is True. That used to be
+# a rule about the whole registry; it is now structural — selected_model refuses to
+# return a non-vision row for the vision role, whatever settings say — which is what
+# lets text-only models live here at all.
 # Frontier/overkill tiers (e.g. Claude Fable 5, GPT-5 pro) are deliberately left
 # out: meal planning + recipe reading don't need them.
 # Mistral ids use the `-latest` aliases (mistral-large-latest → Large 3 today),
 # so the picker follows Mistral's own version rollovers.
 # OpenRouter is a gateway, not a lab: one key reaches every lab's models, billed
 # in one place. Its entries are therefore NOT a second copy of the catalogue —
-# they're the models a household can't otherwise reach (Qwen), plus the app's own
-# default so an OpenRouter-only household still gets it. Its ids are `vendor/model`
-# and are pinned by name, not `-latest`, because OpenRouter keeps old ids working.
-# Two families are deliberately absent: DeepSeek publishes nothing multimodal on
-# OpenRouter (all 14 ids are text-in only, so they fail the invariant above), and
-# Kimi/Moonshot spends its budget on `reasoning` and returns empty `content` on a
-# prompt this size often enough to be unusable as a household default.
-#
-# WHAT THE MODEL ACTUALLY DOES here — one pick serves every feature, so `rec`
-# marks the models that cover the whole spread, not the strongest at any one:
-#   1. read a recipe off a photo (vision + strict JSON, the hardest ask),
-#   2. draft/refine the weekly plan (instruction-following over ~1.5k tokens),
-#   3. background tagging + unit normalization (cheap, high volume, failure-tolerant).
-# One model per provider is flagged so a household on any single API key has a
-# sensible default; these are judgement calls about task fit, not benchmarks.
+# they're the models a household can't otherwise reach (Qwen, DeepSeek), plus the
+# app's own default so an OpenRouter-only household still gets it. Its ids are
+# `vendor/model` and are pinned by name, not `-latest`, because OpenRouter keeps old
+# ids working.
+# Re-verified against OpenRouter's /api/v1/models listing on 2026-08-20:
+#   - DeepSeek publishes nothing multimodal (all 13 ids are text-in only). Before the
+#     role split that disqualified it outright; now it is admitted for `text` alone,
+#     where v4-flash is the cheapest option here by roughly 3x.
+#   - Kimi/Moonshot IS multimodal from k2.5 onward, so the old "text-only" note was
+#     wrong. It stays out for a different reason: k2-thinking spent its budget on
+#     `reasoning` and returned empty `content` on a prompt this size, and the newer
+#     rows are untested here. See extract_text() for what that failure looks like.
 AI_MODELS = [
     {"id": "claude-haiku-4-5",     "provider": "anthropic", "label": "Claude Haiku 4.5",   "cost": 1,
-     "rec": "cheap, handles photos + planning"},
+     "vision": True, "recVision": "cheap, reads a recipe photo well",
+     "recText": "cheap, and plans a week correctly"},
     {"id": "claude-sonnet-4-6",    "provider": "anthropic", "label": "Claude Sonnet 4.6",  "cost": 2,
-     "rec": "best all-round (the app default)"},
-    {"id": "claude-sonnet-5",      "provider": "anthropic", "label": "Claude Sonnet 5",    "cost": 2},
-    {"id": "claude-opus-4-8",      "provider": "anthropic", "label": "Claude Opus 4.8",    "cost": 3},
-    {"id": "gpt-5.4-nano",         "provider": "openai",    "label": "GPT-5.4 nano",       "cost": 1},
+     "vision": True, "recVision": "best all-round (the app default)",
+     "recText": "best all-round (the app default)"},
+    {"id": "claude-sonnet-5",      "provider": "anthropic", "label": "Claude Sonnet 5",    "cost": 2,
+     "vision": True},
+    {"id": "claude-opus-4-8",      "provider": "anthropic", "label": "Claude Opus 4.8",    "cost": 3,
+     "vision": True},
+    {"id": "gpt-5.4-nano",         "provider": "openai",    "label": "GPT-5.4 nano",       "cost": 1,
+     "vision": True},
     {"id": "gpt-5.4-mini",         "provider": "openai",    "label": "GPT-5.4 mini",       "cost": 1,
-     "rec": "best value on an OpenAI key"},
-    {"id": "gpt-5.4",              "provider": "openai",    "label": "GPT-5.4",            "cost": 2},
-    {"id": "gpt-5.5",              "provider": "openai",    "label": "GPT-5.5",            "cost": 3},
-    {"id": "ministral-14b-latest", "provider": "mistral",   "label": "Ministral 3 14B",    "cost": 1},
-    {"id": "mistral-small-latest", "provider": "mistral",   "label": "Mistral Small 4",    "cost": 1},
+     "vision": True, "recVision": "best value on an OpenAI key",
+     "recText": "best value on an OpenAI key"},
+    {"id": "gpt-5.4",              "provider": "openai",    "label": "GPT-5.4",            "cost": 2,
+     "vision": True},
+    {"id": "gpt-5.5",              "provider": "openai",    "label": "GPT-5.5",            "cost": 3,
+     "vision": True},
+    {"id": "ministral-14b-latest", "provider": "mistral",   "label": "Ministral 3 14B",    "cost": 1,
+     "vision": True},
+    {"id": "mistral-small-latest", "provider": "mistral",   "label": "Mistral Small 4",    "cost": 1,
+     "vision": True},
     {"id": "mistral-large-latest", "provider": "mistral",   "label": "Mistral Large 3",    "cost": 1,
-     "rec": "most capability for the money"},
-    {"id": "mistral-medium-latest", "provider": "mistral",  "label": "Mistral Medium 3.5", "cost": 2},
+     "vision": True, "recVision": "most capability for the money",
+     "recText": "most capability for the money"},
+    {"id": "mistral-medium-latest", "provider": "mistral",  "label": "Mistral Medium 3.5", "cost": 2,
+     "vision": True},
     {"id": "anthropic/claude-sonnet-4.6", "provider": "openrouter",
-     "label": "Claude Sonnet 4.6 (OpenRouter)",     "cost": 2,
-     "rec": "the app default, on one shared key"},
+     "label": "Claude Sonnet 4.6 (OpenRouter)",     "cost": 2, "vision": True,
+     "recVision": "the app default, on one shared key",
+     "recText": "the app default, on one shared key"},
     {"id": "qwen/qwen3-vl-30b-a3b-instruct", "provider": "openrouter",
-     "label": "Qwen3 VL 30B (OpenRouter)",          "cost": 1},
+     "label": "Qwen3 VL 30B (OpenRouter)",          "cost": 1, "vision": True},
     {"id": "qwen/qwen3-vl-235b-a22b-instruct", "provider": "openrouter",
-     "label": "Qwen3 VL 235B (OpenRouter)",         "cost": 1,
-     "rec": "cheapest one that plans a week correctly"},
+     "label": "Qwen3 VL 235B (OpenRouter)",         "cost": 1, "vision": True,
+     "recVision": "cheapest that reads a photo cleanly",
+     "recText": "cheap, and plans a week correctly"},
+    # Dense 27B, where the 30B-A3B above activates only ~3B parameters per token.
+    # Measured 2026-08-20 on a real recipe photo, and NOT recommended on the strength
+    # of it: it does read a dense sheet well (14 ingredients / 5 steps vs the 235B's
+    # 13 / 4) but costs 3.5x the 235B for the same photo, and it still missed the
+    # planner's "skip dinner only when the event covers dinner" conditional, so it
+    # gets no recText either. It also thinks by default — see the reasoning switch
+    # in build_body, without which this row returns empty content and 502s.
+    {"id": "qwen/qwen3.8-27b", "provider": "openrouter",
+     "label": "Qwen3.8 27B (OpenRouter)",           "cost": 2, "vision": True},
+    # Text-only: it can never be selected for photos, and selected_model enforces that.
+    # Measured 2026-08-20 against the same planner prompt: the only model tried that
+    # both skipped dinner for "Dinner with Anna" AND kept it for a swimming lesson,
+    # while hitting the weekday protein spread — at ~1/2 the 30B's cost and 1/12th
+    # the 27B's. That conditional is the one the household actually reported broken.
+    {"id": "deepseek/deepseek-v4-flash", "provider": "openrouter",
+     "label": "DeepSeek V4 Flash (OpenRouter)",     "cost": 1, "vision": False,
+     "recText": "cheapest; best at the event rules"},
 ]
 _BY_ID = {m["id"]: m for m in AI_MODELS}
 DEFAULT_MODEL_ID = AI_MODEL   # the app's historical default (Claude Sonnet 4.6)
+ROLES = ("vision", "text")
 
 
-def selected_model() -> dict:
-    """The model the household picked in settings, falling back to the default."""
-    mid = ((read_settings().get("ai") or {}).get("model") or DEFAULT_MODEL_ID)
-    return _BY_ID.get(mid) or _BY_ID.get(DEFAULT_MODEL_ID) or AI_MODELS[0]
+def _has_image(messages: list) -> bool:
+    """Does this request carry an image? Reads the Anthropic-shaped content blocks the
+    callers build, before build_body translates them to each provider's format."""
+    return any(isinstance(m.get("content"), list)
+               and any(isinstance(b, dict) and b.get("type") == "image" for b in m["content"])
+               for m in (messages or []))
+
+
+def selected_model(role: str = "text") -> dict:
+    """The model the household picked for `role`.
+
+    `model` holds the text role and `visionModel` the vision one; a settings file
+    written before the split has only `model`, so both roles resolve to it and
+    behaviour is unchanged until someone picks otherwise.
+
+    A vision request is never returned a text-only row, whatever settings say — an
+    unset, unknown, or text-only `visionModel` falls back to the app default. That
+    is what makes the multimodal invariant structural instead of a rule to remember."""
+    cfg     = read_settings().get("ai") or {}
+    text_id = cfg.get("model") or DEFAULT_MODEL_ID
+    mid     = (cfg.get("visionModel") or text_id) if role == "vision" else text_id
+    model   = _BY_ID.get(mid) or _BY_ID.get(text_id) or _BY_ID.get(DEFAULT_MODEL_ID) or AI_MODELS[0]
+    if role == "vision" and not model.get("vision"):
+        model = _BY_ID.get(DEFAULT_MODEL_ID) or next(m for m in AI_MODELS if m.get("vision"))
+    return model
+
+
+def role_for(messages: list) -> str:
+    return "vision" if _has_image(messages) else "text"
+
+
+def model_for(messages: list) -> dict:
+    """The model this particular request should go to, chosen by its own content."""
+    return selected_model(role_for(messages))
+
+
+def selected_models() -> dict:
+    """Both roles at once, for the admin picker and the startup log."""
+    return {r: selected_model(r)["id"] for r in ROLES}
 
 
 def _api_key(provider: str) -> str:
@@ -108,9 +182,11 @@ class ProviderNotConfigured(HTTPException):
     uses that difference to decide whether a retry cost anything."""
 
 
-def ensure_ready(model: dict | None = None) -> dict:
-    """Raise 500 if the selected model's provider has no API key configured."""
-    model = model or selected_model()
+def ensure_ready(model: dict | None = None, *, role: str = "text") -> dict:
+    """Raise 500 if the model for `role` has no API key configured. Routes call this
+    up front as a fail-fast guard; complete() calls it again with the role the request
+    actually turns out to need."""
+    model = model or selected_model(role)
     if not provider_ready(model["provider"]):
         raise ProviderNotConfigured(500, f"{_key_env(model['provider'])} not set")
     return model
@@ -177,8 +253,20 @@ def build_body(model: dict, system: str, messages: list, max_tokens: int) -> dic
     #     OpenRouter normalizes on `max_tokens` for every model it fronts, GPT-5 included.
     #   - Mistral wants `image_url` to be the data URL string, not an {"url": …} object.
     tokens_key = "max_completion_tokens" if provider == "openai" else "max_tokens"
-    return {"model": model["id"], tokens_key: max_tokens,
+    body = {"model": model["id"], tokens_key: max_tokens,
             "messages": _openai_messages(system, messages, image_as_url_string=provider == "mistral")}
+    if provider == "openrouter":
+        # Reasoning tokens are billed as output and share the max_tokens budget with
+        # the answer — and every call this app makes wants strict JSON, never a
+        # rationale. Measured on a real recipe photo: qwen3.8-27b thinks by default
+        # and spent the entire 4000-token cap on `reasoning`, returning content=""
+        # and finish_reason=length. extract_text() then yields "" and the route 502s,
+        # which is the same failure that keeps Kimi out of the registry. Turning
+        # reasoning off returns a clean 2040-token recipe for 40% less.
+        # Verified accepted (content returned, zero reasoning tokens) by every
+        # OpenRouter row offered here, thinking model or not.
+        body["reasoning"] = {"enabled": False}
+    return body
 
 
 def extract_text(provider: str, result: dict) -> str:
@@ -219,7 +307,7 @@ async def complete(system: str, messages: list, max_tokens: int,
     """Run one completion against the selected provider and return the text.
     Raises HTTPException (with logging) on missing key, unreachable service, or an
     error response — the same failure contract every AI route already relied on."""
-    model = ensure_ready()
+    model = ensure_ready(role=role_for(messages))
     url, headers = _endpoint(model)
     body = build_body(model, system, messages, max_tokens)
     tag = {"model": model["id"], "provider": model["provider"]}
@@ -258,7 +346,7 @@ async def complete_or_none(system: str, messages: list, max_tokens: int,
     """Best-effort variant for background features (e.g. aisle tagging): returns
     the text, or None on any failure — missing key, unreachable, error body — after
     logging a warning. Never raises, so the caller can fall back gracefully."""
-    model = selected_model()
+    model = model_for(messages)
     if not provider_ready(model["provider"]):
         return None
     url, headers = _endpoint(model)

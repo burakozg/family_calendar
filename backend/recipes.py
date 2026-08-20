@@ -845,7 +845,7 @@ async def extract_recipe(request: Request):
     """Take a photo (base64), persist it, and return an AI-extracted recipe draft
     with per-field provenance. The photo is held in _pending/ until the recipe is
     saved via POST /recipes with {_pending_photo: <photo_id>}."""
-    ai.ensure_ready()
+    ai.ensure_ready(role="vision")
     body       = await request.json()   # {image: <base64>, media_type, who}
     b64        = body.get("image", "")
     media_type = body.get("media_type", "image/jpeg")
@@ -879,7 +879,7 @@ async def extract_recipe(request: Request):
 async def extract_recipe_text(request: Request):
     """Extract a recipe draft from a pasted recipe {text} or a {url}. Same draft
     shape as /recipes/extract (per-field provenance), but no photo."""
-    ai.ensure_ready()
+    ai.ensure_ready(role="text")
     body = await request.json()   # {text?, url?}
     url  = (body.get("url") or "").strip()
     text = (body.get("text") or "").strip()
@@ -900,7 +900,7 @@ async def import_link(request: Request):
     """Import ONE recipe from a {url} (recipe site or Instagram post) or pasted {text},
     save it, and return {id, name} to open in the editor (or a pending match to merge).
     Content is kept in the source's original language; the editor is the review step."""
-    ai.ensure_ready()
+    ai.ensure_ready(role="text")
     body = await request.json()
     url  = (body.get("url") or "").strip()
     text = (body.get("text") or "").strip()
@@ -1091,7 +1091,10 @@ async def _ai_extract_recipe_image(images: list, translate: bool = False,
 async def import_notion(request: Request):
     """Bulk-import recipes from a Notion export .zip (base64). Each markdown page is
     AI-extracted into the recipe schema and saved. Returns a per-recipe summary."""
-    ai.ensure_ready()
+    # A Notion zip holds both markdown pages and screenshots, so this one route
+    # uses both models — check both keys up front rather than failing mid-import.
+    ai.ensure_ready(role="text")
+    ai.ensure_ready(role="vision")
     body   = await request.json()
     b64    = (body.get("zip") or "").strip()
     who    = (body.get("who") or "").strip()
@@ -1254,7 +1257,7 @@ where a cup measure would be awkward. Do NOT use pounds, ounces, or inches."""
 async def ai_generate_recipes(request: Request):
     """Generate AI recipes and save them (marked source=ai). Used to seed the fallback
     pool and for on-demand 'ask AI for a recipe' during planning."""
-    ai.ensure_ready()
+    ai.ensure_ready(role="text")
     body    = await request.json()   # {prompt?, count?}
     count   = max(1, min(int(body.get("count", 1)), 20))
     prompt  = (body.get("prompt") or "varied, family-friendly weeknight dinners").strip()
@@ -1310,7 +1313,7 @@ Return ONLY the JSON object, no markdown."""
 @router.post("/recipes/normalize-units")
 async def normalize_recipe_units(request: Request):
     """Standardize recipe units: grams for weight, Celsius, cups/tbsp/tsp for volume. Optional {ids:[...]}."""
-    ai.ensure_ready()
+    ai.ensure_ready(role="text")
     body    = await request.json()
     ids     = body.get("ids") or [e["id"] for e in read_recipe_index()]
     changed = []

@@ -144,12 +144,13 @@ def healthz():
 # ── Routes — AI model picker ──────────────────────────────────────────────────
 @app.get("/ai/models")
 def get_ai_models():
-    """Selectable AI models (name, relative cost tier, and `rec` on the ones
-    recommended for this app's tasks), the current selection, and which providers
-    have an API key configured — drives the admin picker."""
+    """Selectable AI models (name, relative cost tier, whether they accept images,
+    and a per-role `recVision`/`recText` on the ones recommended for this app's
+    tasks), the model selected for each role, and which providers have an API key
+    configured — drives the admin pickers."""
     import ai
-    sel = ai.selected_model()
-    return {"models": ai.AI_MODELS, "selected": sel["id"], "providers": ai.providers_status()}
+    return {"models": ai.AI_MODELS, "selected": ai.selected_models(),
+            "providers": ai.providers_status()}
 
 @app.get("/ai/usage")
 def get_ai_usage(days: int = 14):
@@ -482,7 +483,7 @@ async def startup():
     print("Display cache built on startup")
     import ai
     log_event("system", "server.start", "Backend started",
-              detail={"model": ai.selected_model()["id"], "relay": _relay_ready(),
+              detail={"models": ai.selected_models(), "relay": _relay_ready(),
                       "relay_poll_s": SHOP_RELAY_POLL_SECONDS})
     asyncio.create_task(_backup_loop())
     if _relay_ready():
