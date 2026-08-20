@@ -1,5 +1,5 @@
 """build_display_cache: event placement, birthday age labels, malformed-entry
-skips (warned once), and the cache-write rule for month offsets."""
+skips (warned once), and the cache-write rule for shifted windows."""
 import json
 from datetime import date, timedelta
 
@@ -24,16 +24,17 @@ def test_event_lands_on_its_day():
 
 
 def test_birthday_age_label():
-    today = date.today()
-    _set_events({"birthdays": [{"name": "Grandma", "month": today.month, "day": 15, "year": 1950}]})
+    # A few days out, so it is inside the rolling window whatever today's date is.
+    d = date.today() + timedelta(days=3)
+    _set_events({"birthdays": [{"name": "Grandma", "month": d.month, "day": d.day, "year": 1950}]})
     payload = main.build_display_cache(0)
     labels = [l for _, l in _cell_labels(payload)]
-    assert f"Grandma ({today.year - 1950})" in labels
+    assert f"Grandma ({d.year - 1950})" in labels
 
 
 def test_birthday_without_year_unchanged():
-    today = date.today()
-    _set_events({"birthdays": [{"name": "Uncle", "month": today.month, "day": 20}]})
+    d = date.today() + timedelta(days=3)
+    _set_events({"birthdays": [{"name": "Uncle", "month": d.month, "day": d.day}]})
     labels = [l for _, l in _cell_labels(main.build_display_cache(0))]
     assert "Uncle" in labels
 
@@ -59,13 +60,15 @@ def test_recurring_expands_by_step():
         assert nxt in days
 
 
-def test_offset_months_never_overwrite_cache():
+def test_shifted_windows_never_overwrite_cache():
+    """Only the window anchored on today is canonical. A ±N-week peek must not land
+    in the cache, or Home would show whatever was last browsed."""
     _set_events({"events": []})
     main.build_display_cache(0)
     cached = json.loads(main.F_DISPLAY.read_text())
-    off = main.build_display_cache(1)
-    assert off["month"] != cached["month"] or off["year"] != cached["year"]
-    assert json.loads(main.F_DISPLAY.read_text())["month"] == cached["month"]
+    off = main.build_display_cache(4)
+    assert off["window_start"] != cached["window_start"]
+    assert json.loads(main.F_DISPLAY.read_text())["window_start"] == cached["window_start"]
 
 
 def test_birthday_holiday_text_colors_in_payload():

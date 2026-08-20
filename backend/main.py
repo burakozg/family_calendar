@@ -316,17 +316,30 @@ def clear_logs():
 from storage import F_DISPLAY  # noqa: E402  (grouped with its only consumers)
 
 @app.get("/display-data")
-async def get_display_data(month_offset: int = 0, ascii: int = 0):
+async def get_display_data(week_offset: int = 0, month_offset: int | None = None,
+                           ascii: int = 0):
     """Serve the display payload. Non-zero offsets are computed on demand and never
-    cached. The current-month cache is reused only while it's still for today — on a
-    day/week/month rollover it's rebuilt, so the device can't be served stale data.
-    async (not sync-in-threadpool) so the rollover rebuild can hold the write lock.
+    cached. The cache anchored on today is reused only while it's still for today — on
+    a day rollover it's rebuilt, which is also what re-anchors the rolling 4-week
+    window. async (not sync-in-threadpool) so the rebuild can hold the write lock.
+
+    `month_offset` is the pre-rolling-window parameter, kept because device firmware
+    drifts from this repo: a backend deployed ahead of a reflash would otherwise hand
+    an old Inky an offset it silently ignores. One month ≈ 4 weeks.
 
     `ascii=1` folds the text to ASCII for the Inky Frame, whose bitmap8 font has no
     glyphs above 126 (Turkish, Swedish). Applied at serve time, never stored: the
     cache, the web UI and the phone keep proper Unicode."""
-    if month_offset != 0:
-        payload = build_display_cache(month_offset)   # computed on demand, never written
+    if month_offset is not None:
+        if "legacy_month_offset" not in _cache_warned:
+            _cache_warned.add("legacy_month_offset")
+            log_event("system", "display.legacy_param",
+                      "A client asked for month_offset; serving the rolling window "
+                      "4 weeks per month. Reflash the Inky to send week_offset.",
+                      level="warn")
+        week_offset = week_offset or month_offset * 4
+    if week_offset != 0:
+        payload = build_display_cache(week_offset)    # computed on demand, never written
     else:
         payload = None
         if F_DISPLAY.exists():

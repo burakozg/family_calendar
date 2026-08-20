@@ -1,4 +1,6 @@
-# calendar_draw.py — monthly calendar grid
+# calendar_draw.py — rolling 4-week calendar grid
+# Row 0 is always the current Monday-start week, so today's marker travels
+# across the top row and never walks down the screen.
 # Uses ACeP 6-color palette: black, white, red, green, blue, yellow
 
 _HEX_TO_PEN = {
@@ -10,10 +12,8 @@ _HEX_TO_PEN = {
     "#ffff00": "yellow",
 }
 
-MONTH_NAMES = [
-    "", "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-]
+# Month names live server-side now — the title is a range ("Aug - Sep 2026"), which
+# the backend builds once for both this renderer and the web mirror.
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 def _draw_icon(display, icon, x, y):
@@ -191,33 +191,23 @@ def _truncate(text, max_len):
     return text if len(text) <= max_len else text[:max_len - 1] + "~"
 
 
-def _get_month_data(data, month_offset):
-    """Adjust cells for month offset if needed."""
-    # For now offset is handled server-side in future;
-    # offset=0 always uses today's month from backend
-    return data
-
-
-def draw_calendar(display, data, pens, month_offset=0):
+def draw_calendar(display, data, pens, week_offset=0):
     cells  = data.get("cells", [])
-    month  = data.get("month", 1)
-    year   = data.get("year", 2026)
     legend = data.get("legend", [])
 
-    # Use RTC for today's date so stale cache never shows the wrong day highlighted
-    real_day = None
-    real_month = month
-    real_year  = year
-    if month_offset == 0:
+    # Today from the RTC, as a full "YYYY-MM-DD" string to compare against cell dates.
+    # Whole-date comparison matters now that a grid spans two months (and can span two
+    # years): the old check compared only the day number against the payload's single
+    # month, which the rolling window no longer has. Falling back to the payload's own
+    # `today` keeps a clock-less device working, just at the mercy of cache freshness.
+    today_str = None
+    if week_offset == 0:
         try:
             import localtime_helper
             _t = localtime_helper.local_time()
-            real_year, real_month, real_day = _t[0], _t[1], _t[2]
+            today_str = "%04d-%02d-%02d" % (_t[0], _t[1], _t[2])
         except Exception:
-            pass
-
-    disp_month = real_month
-    disp_year  = real_year
+            today_str = None
 
     # Layout
     grid_x = 4
@@ -229,8 +219,10 @@ def draw_calendar(display, data, pens, month_offset=0):
     row_h  = grid_h // rows
 
     # ── Title ─────────────────────────────────────────────────
+    # Built server-side ("Aug - Sep 2026") because the window names a range, not a
+    # month, and both this renderer and the web mirror should say the same thing.
     display.set_pen(pens["black"])
-    display.text(MONTH_NAMES[disp_month] + " " + str(disp_year), grid_x, 2, scale=3)
+    display.text(data.get("title", ""), grid_x, 2, scale=3)
 
     # ── Color lookup — direct palette dict, no heuristic ─────
     def color_pen(hex_color):
@@ -276,33 +268,22 @@ def draw_calendar(display, data, pens, month_offset=0):
         row = idx // 7
         x = grid_x + col * col_w
         y = grid_y + row * row_h
-        in_month = cell.get("current_month", True)
-        if real_day is not None and in_month:
-            is_today = (cell.get("day") == real_day and real_month == month and real_year == year)
+        cell_date = cell.get("date", "")
+        if today_str is not None:
+            is_today = cell_date == today_str
+            is_past  = cell_date < today_str
         else:
             is_today = cell.get("today", False)
-        # Passed days of THIS month (or any day of an earlier month), but not today
-        is_past = in_month and not is_today and (
-            month_offset < 0 or (real_day is not None and cell.get("day", 0) < real_day)
-        )
+            is_past  = (not is_today) and cell_date < str(data.get("today", ""))
         events   = cell.get("events", [])
 
         # Background
         display.set_pen(pens["white"])
         display.rectangle(x + 1, y + 1, col_w - 2, row_h - 2)
 
-        # Off-month shading — diagonal hatch
-        if not in_month:
-            display.set_pen(pens["black"])
-            dy = y + 2
-            while dy < y + row_h - 2:
-                dx = x + 2
-                while (dx + dy) % 4 != 0:
-                    dx += 1
-                while dx < x + col_w - 2:
-                    display.pixel(dx, dy)
-                    dx += 4
-                dy += 1
+        # No off-month shading: the window spans two months most weeks, so hatching
+        # "the other month" would grey out half the grid. The 1st carries its month
+        # name instead (see the day number below).
 
         # Passed-day shading — staggered dot pattern every 3px
         if is_past:
@@ -333,13 +314,19 @@ def draw_calendar(display, data, pens, month_offset=0):
         icon_only = [e for e in events if e.get("icon_only")]
         text_evs  = [e for e in events if not e.get("icon_only")]
 
-        # Narrow white patch behind day number only — rest of row stays shaded
-        # (digits at scale 2 end at y+15, so the patch runs 1px past, to y+16)
-        if not in_month or is_past:
-            display.set_pen(pens["white"])
-            display.rectangle(x + 1, y + 1, 22, 16)
-        display.set_pen(pens["red"] if cell.get("holiday") else pens["black"])
+        # The 1st of a month names itself ("1 Sep"), which is how a month boundary
+        # reads without shading.
         day_str = str(cell.get("day", ""))
+        if cell.get("month_short"):
+            day_str += " " + cell["month_short"]
+
+        # Narrow white patch behind day number only — rest of row stays shaded
+        # (digits at scale 2 end at y+15, so the patch runs 1px past, to y+16).
+        # Width follows the text: a fixed 22px clipped "1 Sep" on a passed day.
+        if is_past:
+            display.set_pen(pens["white"])
+            display.rectangle(x + 1, y + 1, min(len(day_str) * 12 + 4, col_w - 2), 16)
+        display.set_pen(pens["red"] if cell.get("holiday") else pens["black"])
         display.text(day_str, x + 3, y + 2, scale=2)
 
         # Icons right-aligned on same line as day number

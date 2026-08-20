@@ -62,12 +62,11 @@ body {
   overflow:hidden; display:flex; flex-direction:column; }
 .grid .cell:nth-child(7n) { box-shadow:1px 0 0 0 transparent; }
 .grid { border-right:1px dotted var(--black); border-bottom:1px dotted var(--black); }
-.cell.off { background-image:repeating-linear-gradient(45deg,var(--shade) 0 .5px,transparent .5px 3px); }
 .cell.past { background-image:radial-gradient(var(--shade) 0.4px, transparent 0.5px); background-size:3px 3px; }
 .cell.today { outline:3px solid var(--red); outline-offset:-3px; z-index:2; }
 .cell-top { display:flex; align-items:flex-start; justify-content:space-between; gap:2px; }
 .daynum { font-size:14px; font-weight:700; line-height:1; }
-.cell.off .daynum, .cell.past .daynum { background:var(--white); padding:0 1px; }
+.cell.past .daynum { background:var(--white); padding:0 1px; }
 .icons { display:flex; gap:1px; flex-shrink:0; }
 .ic { width:14px; height:14px; display:inline-flex; align-items:center; justify-content:center; }
 .ic svg { width:11px; height:11px; }
@@ -108,9 +107,9 @@ body {
     <div id="view"></div>
   </div>
   <div id="buttons">
-    <button class="btn" data-btn="a"><span class="k">A</span>Last Month</button>
+    <button class="btn" data-btn="a"><span class="k">A</span>&lt; 4 Weeks</button>
     <button class="btn active" data-btn="b"><span class="k">B</span>Home</button>
-    <button class="btn" data-btn="c"><span class="k">C</span>Next Month</button>
+    <button class="btn" data-btn="c"><span class="k">C</span>4 Weeks &gt;</button>
     <button class="btn" data-btn="d"><span class="k">D</span>Today's Recipe</button>
     <button class="btn" data-btn="e"><span class="k">E</span>Tomorrow's Recipe</button>
   </div>
@@ -121,8 +120,10 @@ const API = window.location.origin;
 const NS = 'http://www.w3.org/2000/svg';
 const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
-// screen: 'calendar' | 'today' | 'tomorrow'    monthOffset: -1 | 0 | 1
-let screen = 'calendar', monthOffset = 0, data = {};
+// screen: 'calendar' | 'today' | 'tomorrow'    weekOffset: -4 | 0 | 4
+// The calendar is a rolling 4-week window anchored on the current week, so the
+// side buttons slide it a whole screenful at a time.
+let screen = 'calendar', weekOffset = 0, data = {};
 
 // ── SVG icons (shared with the mobile/admin UIs) ──────────────
 function mkSvg(paths){ const s=document.createElementNS(NS,'svg'); s.setAttribute('viewBox','0 0 16 16'); s.setAttribute('fill','none');
@@ -175,7 +176,7 @@ window.addEventListener('resize', fit);
 // ── Render dispatch ───────────────────────────────────────────
 function render(){
   document.querySelectorAll('.btn').forEach(b=>b.classList.remove('active'));
-  const activeBtn = screen==='today' ? 'd' : screen==='tomorrow' ? 'e' : ({'-1':'a','0':'b','1':'c'}[String(monthOffset)]||'b');
+  const activeBtn = screen==='today' ? 'd' : screen==='tomorrow' ? 'e' : ({'-4':'a','0':'b','4':'c'}[String(weekOffset)]||'b');
   const el = document.querySelector(`.btn[data-btn="${activeBtn}"]`); if (el) el.classList.add('active');
   document.getElementById('view').innerHTML =
     (screen==='calendar') ? renderCalendar() : renderMeals(screen);
@@ -187,8 +188,7 @@ function todayParts(){ const t=(data.today||'').split('-').map(Number); return {
 function renderCalendar(){
   const cells = data.cells || [];
   const legend = data.legend || [];
-  const T = todayParts();
-  const title = `${(data.month_name||'')} ${data.year||''}`;
+  const title = data.title || '';   // a range ("Aug - Sep 2026"), built server-side
 
   // Birthday/holiday legend chips mirror the cells' colors directly from
   // event_colors, so the legend always matches even if the cached legend field is stale.
@@ -203,13 +203,14 @@ function renderCalendar(){
   let wk = DAYS.map(d=>`<div class="weekday">${d}</div>`).join('');
 
   let grid = cells.map(cell => {
-    const inMonth = cell.current_month !== false;
+    // Whole-date comparison: the window spans two months (sometimes two years), so
+    // the day number alone no longer identifies a day.
     const isToday = !!cell.today;
-    const isPast  = inMonth && !isToday && (cell.day||0) < T.d && (data.month===T.m);
+    const isPast  = !isToday && (cell.date||'') < (data.today||'');
     const evs = cell.events || [];
     const iconOnly = evs.filter(e=>e.icon_only);
     const textEvs  = evs.filter(e=>!e.icon_only);
-    let cls = 'cell' + (inMonth?'':' off') + (isPast?' past':'') + (isToday?' today':'');
+    let cls = 'cell' + (isPast?' past':'') + (isToday?' today':'');
 
     let icons = iconOnly.map(e =>
       `<span class="ic" style="color:${esc(e.bg||'#000')}" title="${esc(e.label)}">${iconSvg(e.icon).outerHTML}</span>`).join('');
@@ -225,8 +226,11 @@ function renderCalendar(){
     if (textEvs.length>MAX) evhtml += `<div class="more">+${textEvs.length-MAX}</div>`;
 
     const daynumStyle = cell.holiday ? ' style="color:var(--red)"' : '';
+    // The 1st of a month names itself ("1 Sep") — that is the month boundary, since
+    // a rolling window has no off-month shading to mark it.
+    const dayLabel = (cell.day||'') + (cell.month_short ? ' ' + cell.month_short : '');
     return `<div class="${cls}">
-      <div class="cell-top"><span class="daynum"${daynumStyle}>${cell.day||''}</span><span class="icons">${icons}</span></div>
+      <div class="cell-top"><span class="daynum"${daynumStyle}>${esc(dayLabel)}</span><span class="icons">${icons}</span></div>
       <div class="evs">${evhtml}</div>
     </div>`;
   }).join('');
@@ -299,11 +303,11 @@ function renderRecipe(tm, prefix){
 
 // ── Navigation ────────────────────────────────────────────────
 function go(btn){
-  if (btn==='a'){ screen='calendar'; monthOffset=-1; }
-  else if (btn==='b'){ screen='calendar'; monthOffset=0; }
-  else if (btn==='c'){ screen='calendar'; monthOffset=1; }
-  else if (btn==='d'){ screen='today'; monthOffset=0; }
-  else if (btn==='e'){ screen='tomorrow'; monthOffset=0; }
+  if (btn==='a'){ screen='calendar'; weekOffset=-4; }
+  else if (btn==='b'){ screen='calendar'; weekOffset=0; }
+  else if (btn==='c'){ screen='calendar'; weekOffset=4; }
+  else if (btn==='d'){ screen='today'; weekOffset=0; }
+  else if (btn==='e'){ screen='tomorrow'; weekOffset=0; }
   else return;
   loadData();
 }
@@ -321,7 +325,7 @@ document.addEventListener('keydown', e=>{
 // ── Data + live updates ───────────────────────────────────────
 async function loadData(){
   try {
-    const r = await fetch(`${API}/display-data?month_offset=${monthOffset}`);
+    const r = await fetch(`${API}/display-data?week_offset=${weekOffset}`);
     data = await r.json();
     document.getElementById('page-title').textContent = (data.app_name || 'Family Calendar') + ' — Display';
     document.getElementById('dot').classList.remove('off');

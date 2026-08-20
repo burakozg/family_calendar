@@ -86,13 +86,13 @@ def disconnect_wifi():
         pass
 
 
-def draw_screen(data, screen, month_offset):
+def draw_screen(data, screen, week_offset):
     display.set_pen(1)  # white
     display.clear()
     pens = make_pens(display)
 
     if screen == "calendar":
-        calendar_draw.draw_calendar(display, data, pens, month_offset)
+        calendar_draw.draw_calendar(display, data, pens, week_offset)
     elif screen == "today":
         meals_draw.draw_meals_full(display, data, pens, "today")
     elif screen == "tomorrow":
@@ -103,7 +103,7 @@ def draw_screen(data, screen, month_offset):
     # (the meals screen especially ran right into the tag row).
     display.set_pen(pens["black"])
     display.line(0, HEIGHT - 17, WIDTH, HEIGHT - 17)
-    labels = ["Last Month", "Home", "Next Month", "Today's Recipe", "Tomorrow's Recipe"]
+    labels = ["< 4 Weeks", "Home", "4 Weeks >", "Today's Recipe", "Tomorrow's Recipe"]
     slot = WIDTH // len(labels)
     # Which tag is the currently-open page?
     if screen == "today":
@@ -111,7 +111,7 @@ def draw_screen(data, screen, month_offset):
     elif screen == "tomorrow":
         active = 4
     else:  # calendar
-        active = {-1: 0, 0: 1, 1: 2}.get(month_offset, 1)
+        active = {-4: 0, 0: 1, 4: 2}.get(week_offset, 1)
     for i, label in enumerate(labels):
         tw = display.measure_text(label, 1)
         x  = i * slot + (slot - tw) // 2
@@ -152,10 +152,10 @@ def clock_valid():
     return time.localtime()[0] >= 2025
 
 
-def fetch_and_draw(screen, month_offset):
+def fetch_and_draw(screen, week_offset):
     inky_frame.button_a.led_on()
     network_fetch.connect_wifi()
-    data = network_fetch.fetch_data(month_offset)
+    data = network_fetch.fetch_data(week_offset)
     inky_frame.button_a.led_off()
 
     # NTP (in connect_wifi) set the Pico RTC; mirror it into the battery-backed
@@ -170,7 +170,7 @@ def fetch_and_draw(screen, month_offset):
         draw_no_data()
         return False
 
-    draw_screen(data, screen, month_offset)
+    draw_screen(data, screen, week_offset)
     return True
 
 
@@ -220,18 +220,19 @@ def wake_button():
     return None
 
 
-# Button → (screen, month_offset). Month buttons are absolute offsets from the
-# real current month, not relative to what's displayed.
+# Button → (screen, week_offset). The calendar is a rolling 4-week window anchored
+# on the current week, so these slide it a whole screenful at a time. Absolute
+# offsets from the real current week, not relative to what's displayed.
 ACTIONS = {
-    "a": ("calendar", -1),
+    "a": ("calendar", -4),
     "b": ("calendar", 0),
-    "c": ("calendar", 1),
+    "c": ("calendar", 4),
     "d": ("today", 0),
     "e": ("tomorrow", 0),
 }
 
 
-def usb_loop(current_screen, month_offset):
+def usb_loop(current_screen, week_offset):
     """USB power only: VSYS can't be cut, so keep the old polling loop
     (buttons + midnight refresh). Never reached on battery."""
     while True:
@@ -254,9 +255,9 @@ def usb_loop(current_screen, month_offset):
             print("Midnight refresh")
         else:
             print("Button", btn.upper())
-            current_screen, month_offset = ACTIONS[btn]
-        fetch_and_draw(current_screen, month_offset)
-        save_state(current_screen, month_offset)
+            current_screen, week_offset = ACTIONS[btn]
+        fetch_and_draw(current_screen, week_offset)
+        save_state(current_screen, week_offset)
         disconnect_wifi()
         time.sleep(0.5)   # button release
 
@@ -272,18 +273,18 @@ def run():
     except Exception:
         pass
 
-    current_screen, month_offset = load_state()
+    current_screen, week_offset = load_state()
     btn = wake_button()
     if btn:
         print("Woken by button", btn.upper())
-        current_screen, month_offset = ACTIONS[btn]
+        current_screen, week_offset = ACTIONS[btn]
     elif inky_frame.woken_by_rtc():
         print("Woken by RTC alarm — daily refresh")
     else:
         print("Cold boot / USB start")
 
-    fetch_and_draw(current_screen, month_offset)
-    save_state(current_screen, month_offset)
+    fetch_and_draw(current_screen, week_offset)
+    save_state(current_screen, week_offset)
 
     # Everything below is battery hygiene: radio off, wake alarm armed,
     # then release the power latch. On battery, execution ENDS here.
@@ -294,7 +295,7 @@ def run():
     inky_frame.turn_off()
 
     # Still running → we're on USB power.
-    usb_loop(current_screen, month_offset)
+    usb_loop(current_screen, week_offset)
 
 
 run()

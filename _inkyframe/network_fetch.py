@@ -45,15 +45,15 @@ def connect_wifi():
     return False
 
 
-def fetch_data(month_offset=0):
+def fetch_data(week_offset=0):
     """
     Fetch display data with retries before falling back to cache.
     On success: saves to local cache and returns data.
     On failure after all retries: returns cached data if available, else None.
     """
     params = []
-    if month_offset != 0:
-        params.append("month_offset=" + str(month_offset))
+    if week_offset != 0:
+        params.append("week_offset=" + str(week_offset))
     if ASCII_ONLY:
         params.append("ascii=1")
     url = NAS_URL + ("?" + "&".join(params) if params else "")
@@ -65,7 +65,7 @@ def fetch_data(month_offset=0):
                 data = r.json()
                 r.close()
                 print("Fetch OK")
-                if month_offset == 0:
+                if week_offset == 0:
                     _save_cache(data)
                 data["_offline"] = False
                 return data

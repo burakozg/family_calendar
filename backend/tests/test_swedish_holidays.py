@@ -53,9 +53,8 @@ def test_holidays_flagged_and_labelled_when_enabled():
     _reset_settings()
     main.write(main.F_EVENTS, {"events": [], "birthdays": [], "recurring": []})
     seen = {}
-    for off in range(-1, 12):                       # sweep a full year of grids
+    for off in range(-4, 56, 4):                    # sweep a full year of 4-week windows
         payload = main.build_display_cache(off)
-        by_date = {y for y in swedish_holidays(payload["year"])}
         for c in payload["cells"]:
             if c.get("holiday"):
                 assert any(e["type"] == "holiday" for e in c["events"])
@@ -69,7 +68,7 @@ def test_toggle_off_removes_holidays():
     s.setdefault("display", {})["showHolidays"] = False
     main.write(main.F_SETTINGS, s)
     try:
-        for off in range(-1, 12):
+        for off in range(-4, 56, 4):
             payload = main.build_display_cache(off)
             assert all(not c.get("holiday") for c in payload["cells"])
             assert all(e["type"] != "holiday"

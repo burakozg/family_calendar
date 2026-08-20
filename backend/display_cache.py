@@ -2,7 +2,6 @@
 (the "materialized view" at the heart of the system) is rebuilt after every
 mutation and written to cache/display.json — the Inky Frame fetches it with
 zero computation at request time."""
-import calendar as cal_mod
 import unicodedata
 from datetime import date, timedelta
 
@@ -88,18 +87,46 @@ def _recurring_occurrences(r: dict, win_start: date, win_end: date) -> list:
 # builder runs on every mutation, so unbounded repeats would flood the log).
 _cache_warned: set = set()
 
-def build_display_cache(month_offset: int = 0) -> dict:
+# ASCII-only, and short enough to sit beside a day number in a 113px cell. The Inky's
+# bitmap8 font has no glyph above 126, so nothing here may grow an accent.
+_MONTH_SHORT = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _window_title(start: date, end: date) -> str:
+    """Name the rolling window: "August 2026" inside one month, "Aug - Sep 2026"
+    across two, "Dec 2026 - Jan 2027" across a year end. Plain hyphen, never an en
+    dash — the device font would drop it and fold_ascii would have to rescue it."""
+    if start.year == end.year:
+        if start.month == end.month:
+            return f"{start.strftime('%B')} {start.year}"
+        return f"{_MONTH_SHORT[start.month - 1]} - {_MONTH_SHORT[end.month - 1]} {start.year}"
+    return (f"{_MONTH_SHORT[start.month - 1]} {start.year} - "
+            f"{_MONTH_SHORT[end.month - 1]} {end.year}")
+
+def build_display_cache(week_offset: int = 0) -> dict:
     """
     Pre-render the full Pico payload and write to cache/display.json.
     Called after any data change. Pico fetches this directly — zero computation at fetch time.
+
+    The grid is a ROLLING 4-week window, not a calendar month: row 0 is always the
+    Monday-start week containing `today`, and the three weeks after it fill the rest.
+    Today's marker therefore travels left-to-right across the top row and never
+    descends — when a week ends the whole window slides up. A month grid put today in
+    the bottom row by month's end, leaving almost no forward visibility exactly when
+    it was most wanted. `week_offset` slides the window in whole weeks (the device's
+    buttons use ±4).
     """
     settings = read_settings()
     ev_data  = read_events()
     meals    = read_meals()
     today    = date.today()
-    m        = today.month - 1 + month_offset
-    year     = today.year + m // 12
-    month    = m % 12 + 1
+    window_start = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
+    window_end   = window_start + timedelta(days=27)
+    # Kept for anything still reading the old month-shaped fields; they describe the
+    # day the window opens on, which is all a month name can honestly mean here.
+    year     = window_start.year
+    month    = window_start.month
 
     # Expand event map
     event_map: dict[str, list] = {}
@@ -108,7 +135,7 @@ def build_display_cache(month_offset: int = 0) -> dict:
     members = {m["id"]: m for m in settings.get("members", [])}
 
     for b in ev_data.get("birthdays", []):
-        for y in [year, year + 1]:
+        for y in sorted({window_start.year, window_end.year}):
             try:
                 d = date(y, b["month"], b["day"])
                 label = b["name"]
@@ -123,12 +150,10 @@ def build_display_cache(month_offset: int = 0) -> dict:
                     log_event("data", "cache.skip_birthday",
                               f"Skipping malformed birthday '{b.get('name', '')}': {e}", level="warn")
 
-    # Grid bounds (incl. leading/trailing days of adjacent months): recurring
-    # items are expanded only across days the payload can actually render.
-    _fd  = date(year, month, 1).weekday()
-    _dim = cal_mod.monthrange(year, month)[1]
-    grid_first = date(year, month, 1) - timedelta(days=_fd)
-    grid_last  = date(year, month, _dim) + timedelta(days=(7 - (_fd + _dim) % 7) % 7)
+    # Grid bounds: recurring items, multi-day spans and holidays are expanded only
+    # across days the payload can actually render — i.e. the rolling window itself.
+    grid_first = window_start
+    grid_last  = window_end
 
     for r in ev_data.get("recurring", []):
         try:
@@ -203,29 +228,18 @@ def build_display_cache(month_offset: int = 0) -> dict:
     for evs in event_map.values():
         evs.sort(key=lambda x: (_TYPE_ORDER.get(x.get("type"), 2), x.get("time") or ""))
 
-    # Calendar grid
-    first_dow    = date(year, month, 1).weekday()
-    days_in_month = cal_mod.monthrange(year, month)[1]
-    prev_month    = month - 1 if month > 1 else 12
-    prev_year     = year if month > 1 else year - 1
-    days_in_prev  = cal_mod.monthrange(prev_year, prev_month)[1]
-
+    # Calendar grid — 28 cells, 4 rows, always starting on a Monday. There is no
+    # off-month concept any more: the window spans two months most weeks, so shading
+    # "the other month" would grey out half the screen. Instead the 1st of a month
+    # carries a `month_short`, which the renderers draw as "1 Sep" beside the number.
     cells = []
-    for i in range(first_dow - 1, -1, -1):
-        d = date(prev_year, prev_month, days_in_prev - i)
-        cells.append({"date": str(d), "day": d.day, "current_month": False, "today": False, "events": event_map.get(str(d), [])})
-    for day in range(1, days_in_month + 1):
-        d = date(year, month, day)
-        cells.append({"date": str(d), "day": day, "current_month": True, "today": d == today, "events": event_map.get(str(d), [])})
-    trailing = 1
-    while len(cells) % 7 != 0:
-        next_month = month + 1 if month < 12 else 1
-        next_year  = year if month < 12 else year + 1
-        try:
-            d = date(next_year, next_month, trailing)
-            cells.append({"date": str(d), "day": trailing, "current_month": False, "today": False, "events": event_map.get(str(d), [])})
-        except ValueError: pass
-        trailing += 1
+    for i in range(28):
+        d = window_start + timedelta(days=i)
+        cell = {"date": str(d), "day": d.day, "today": d == today,
+                "events": event_map.get(str(d), [])}
+        if d.day == 1:
+            cell["month_short"] = _MONTH_SHORT[d.month - 1]
+        cells.append(cell)
 
     # Flag holiday cells so the renderers can paint the day number red.
     for cell in cells:
@@ -288,6 +302,9 @@ def build_display_cache(month_offset: int = 0) -> dict:
     payload = {
         "month": month, "year": year,
         "month_name": date(year, month, 1).strftime("%B"),
+        "title": _window_title(window_start, window_end),
+        "window_start": str(window_start),
+        "window_end": str(window_end),
         "today": str(today),
         "cells": cells,
         "meal_plan": meal_plan,
@@ -300,9 +317,9 @@ def build_display_cache(month_offset: int = 0) -> dict:
         "event_colors": event_colors,
         "generated_at": today.isoformat(),
     }
-    # Only the current month is the canonical cached view; ±offset months are
-    # computed on demand and must NOT overwrite the cache (that caused Home to
-    # show a previously-viewed month's grid).
-    if month_offset == 0:
+    # Only the window anchored on today is the canonical cached view; ±offset windows
+    # are computed on demand and must NOT overwrite the cache (that caused Home to
+    # show a previously-viewed grid).
+    if week_offset == 0:
         write(F_DISPLAY, payload)
     return payload

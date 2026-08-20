@@ -27,7 +27,7 @@ def test_multiday_capped_at_60_days():
         {"id": "md2", "date": str(d0), "endDate": str(d0 + timedelta(days=365)),
          "who": "family", "icon": "travel", "label": "Forever"},
     ], "birthdays": [], "recurring": []})
-    payload = main.build_display_cache(3)   # far month: past the cap → absent
+    payload = main.build_display_cache(12)  # 12 weeks out: past the 60-day cap → absent
     assert _payload_days_with(payload, "Forever") == []
 
 
