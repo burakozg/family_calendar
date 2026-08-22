@@ -1,6 +1,6 @@
 # Family Calendar
 
-A self-hosted family calendar that syncs to a **Pimoroni Inky Frame 7" e-ink display** and is managed from any browser. It shows a monthly calendar with per-person color-coded events, Swedish red days, and an AI-assisted weekly meal plan.
+A self-hosted family calendar that syncs to a **Pimoroni Inky Frame 7" e-ink display** and is managed from any browser. It shows a rolling four-week calendar — the current week always on top — with per-person color-coded events, Swedish red days, and an AI-assisted weekly meal plan.
 
 Everything runs on a home server (a QNAP NAS in this deployment) inside a single Docker container. A battery-powered Pico 2 W pulls a pre-rendered payload from the server and draws it on the e-ink screen; web clients get live updates over Server-Sent Events.
 
@@ -34,6 +34,31 @@ model, **[DEPLOY.md](DEPLOY.md)** for the `./deploy` command reference, and
 **[RUNBOOK.md](RUNBOOK.md)** for the day-to-day operating reference —
 what to Restart vs Recreate, the `./deploy` commands, file-sync and certificate
 rules, and the gotchas worth not rediscovering.
+
+## What's new
+
+Highlights only — `git log` is the full history.
+
+<!-- Add an entry only when user-visible functionality changes (not fixes or
+     refactors). Newest first, keep it to ~8; drop the oldest but keep the
+     initial release. If this ever falls badly out of date, delete it rather
+     than half-fix it — a wrong shop window is worse than none. -->
+
+- Recipe editor flags near-duplicates however a recipe was entered, and a duplicate
+  name can no longer overwrite an existing recipe ([`532596d`](../../commit/532596d))
+- Meal-kit sheets that arrive as one page are split into a main and a side, attributed
+  to "Meal kit" rather than to a person
+  ([`938c194`](../../commit/938c194), [`f2b5ff3`](../../commit/f2b5ff3))
+- Inky calendar rolls as a four-week window — the current week stays on top instead of
+  today walking down the screen ([`4ce67b6`](../../commit/4ce67b6))
+- Separate AI models for reading photos and for text/planning, so each job can use a
+  model that suits it ([`9c0a696`](../../commit/9c0a696))
+- Phone app collapses far-future events, shows years, and can translate scanned
+  recipes ([`1ff3e93`](../../commit/1ff3e93))
+- Meal planner skips dinner only for events that actually cover it, and spreads
+  chicken / fish / red meat / vegetable across the weekdays ([`3dfefe8`](../../commit/3dfefe8))
+- Initial release: self-hosted calendar, e-ink display, AI meal planning
+  ([`99b47e5`](../../commit/99b47e5))
 
 ## Requirements
 
@@ -164,14 +189,16 @@ The `_inkyframe/` directory contains MicroPython code that runs on the Pico 2 W.
 
 **Buttons on the frame:**
 
-- **A** — Previous month
-- **B** — Home (calendar, current month)
-- **C** — Next month
+- **A** — `< 4 Weeks` (the previous four-week window)
+- **B** — `Home` (calendar, current week on top)
+- **C** — `4 Weeks >` (the next four-week window)
 - **D** — Today's recipe
 - **E** — Tomorrow's recipe
 
-Month buttons are absolute offsets from the real current month, not relative
-to what's on screen.
+The calendar is a rolling four-week window: row one is always the current
+Monday-start week, so today's marker crosses the top row and never walks down
+the screen. A and C slide that window a whole screenful (±4 weeks) and are
+absolute offsets from the real current week, not relative to what's on screen.
 
 The display also auto-refreshes at 00:01 local time (RTC-alarm wake). If the
 server is unreachable it falls back to the last cached payload and shows an
@@ -215,7 +242,7 @@ model).
 | GET/POST | `/shopping/{week}` | Week's ingredients grouped by AI-tagged store aisle + `have`/`bought` state |
 | POST | `/shopping/{week}/publish` | Push the rolling 6-day list to the cloud relay ("Publish to phone" — the phone view always shows today + next 5 days); no-op unless `SHOP_RELAY_URL` is set |
 | GET/POST | `/mailsync/status`, `/mailsync/run` | mailbox.org mail/calendar sync status + manual cycle (see ARCHITECTURE.md's "Mail/calendar sync" section) |
-| GET | `/display-data?month_offset=N` | Pre-rendered payload for the Inky Frame |
+| GET | `/display-data?week_offset=N` | Pre-rendered payload for the Inky Frame (`N` in weeks; the older `month_offset` is still accepted, 4 weeks per month, so a device on un-reflashed firmware keeps working) |
 | POST | `/display-data/rebuild` | Force-rebuild the display cache |
 | GET | `/stream` | SSE stream of `update` events for web clients |
 | GET | `/healthz` | Liveness probe (also used by the relay app's AI content tab to detect the home network) |

@@ -33,13 +33,19 @@ does all the work up front:
 - Every time data changes (any POST/PATCH/DELETE), the backend calls
   `build_display_cache()`, which expands birthdays, recurring items, events, and
   (when `settings.display.showHolidays` is on) Swedish red days into a concrete
-  per-day map, builds the full month grid (including leading/trailing days from
-  adjacent months), flags holiday cells (red day number) plus a `Holiday` legend
-  entry, attaches the current week's meal plan (plus today's/tomorrow's recipe
-  detail) and a color legend, then writes it to `data/cache/display.json`.
+  per-day map, builds a **rolling four-week grid** — 28 cells, always starting on
+  the Monday of the current week — flags holiday cells (red day number) plus a
+  `Holiday` legend entry, attaches the current week's meal plan (plus
+  today's/tomorrow's recipe detail) and a color legend, then writes it to
+  `data/cache/display.json`.
+- Because the window is anchored on today rather than on a calendar month, it
+  spans two months most weeks. There is no off-month concept and no shading:
+  the 1st of a month carries a `month_short` so it renders as "1 Sep", and the
+  payload's `title` names the range ("Aug - Sep 2026").
 - The device just GETs `/display-data`, receives a ready-to-draw payload, and
-  renders it. Non-current months (`month_offset != 0`) are computed on demand
-  and not cached.
+  renders it. Shifted windows (`week_offset != 0`) are computed on demand and
+  not cached. The cache is discarded whenever its `today` is no longer today,
+  which is also what re-anchors the window as days pass.
 
 This "materialized view" pattern is the heart of the system.
 
@@ -453,7 +459,7 @@ e-ink panel via `picographics` (`DISPLAY_INKY_FRAME_7`).
 |------|------|
 | `main.py` | Entry point. Wake (button/RTC alarm) → fetch → draw → deep sleep; USB fallback polling loop; state persistence, screen dispatch. |
 | `network_fetch.py` | WiFi connect + NTP sync, fetch `/display-data` with retries, local cache fallback. |
-| `calendar_draw.py` | Renders the month grid + legend from the payload. |
+| `calendar_draw.py` | Renders the rolling four-week grid + legend from the payload. |
 | `meals_draw.py` | Renders the meals screen: left = week list (target day boxed), right = that day's recipe (today or tomorrow). |
 | `localtime_helper.py` | Stockholm local time with automatic CET/CEST (EU DST). |
 | `inky_helper.py` | Low-level board helpers (RTC via PCF85063A, VSYS hold pin, deep sleep). |
@@ -472,10 +478,10 @@ takes the same batteries to months.
    which button into the shift register, read at boot via `button_x.read()`)
    or the PCF85063A RTC alarm (armed for **00:01 local** → daily refresh).
    Cold boot / no latch = redraw the state persisted in `state.txt`.
-2. **Act** — buttons map to screens: **A** = previous month, **B** = home
-   (this month), **C** = next month, **D** = today's recipe, **E** = tomorrow's
-   recipe (month buttons are absolute offsets from the real current month, not
-   relative to what's displayed). `fetch_data()` retries the server 3× (5s
+2. **Act** — buttons map to screens: **A** = previous four weeks, **B** = home
+   (current week on top), **C** = next four weeks, **D** = today's recipe,
+   **E** = tomorrow's recipe (the calendar buttons are absolute ±4-week offsets
+   from the real current week, not relative to what's displayed). `fetch_data()` retries the server 3× (5s
    apart); on total failure it returns the last `display_cache.json` and the
    payload is flagged `_offline`, which draws a red **OFFLINE** badge.
 3. **Sleep** — WiFi is disconnected and deactivated, the PCF85063A is synced
@@ -517,7 +523,7 @@ stable target. Timezone is set to `Europe/Stockholm` in the container.
 - **No concurrency control** on JSON writes — fine for single-family use.
 - **Week keys are ISO week** (`YYYY-WW`); meal plans are stored per ISO week.
 - **Recurring items** are expanded by `_recurring_occurrences()` across the
-  rendered month grid only (jump-ahead keeps it O(grid) for old start dates).
+  rendered four-week window only (jump-ahead keeps it O(grid) for old start dates).
   Multi-day events expand onto each day of their range, capped at 60 days.
   Event times are baked into the payload labels ("14:30 Dentist") so clients
   need no changes; each day lists all-day items first, then timed by time.
