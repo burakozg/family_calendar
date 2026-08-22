@@ -576,7 +576,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
         <div class="card">
           <div class="card-title" id="recipe-form-title">New recipe</div>
 
-          <div class="field"><label>Recipe name</label><input type="text" id="rf-name" placeholder="e.g. Pasta Carbonara" /></div>
+          <div class="field"><label>Recipe name</label><input type="text" id="rf-name" placeholder="e.g. Pasta Carbonara" oninput="scheduleSimilarCheck()" /></div>
           <div class="field"><label>Description</label><textarea id="rf-description" style="min-height:56px;" placeholder="Short description of the dish…"></textarea></div>
 
           <hr />
@@ -884,7 +884,13 @@ let data = {};
 let recipeIndex = [];
 let editingRecipeId = null;
 let pendingPhotoId = null;   // photo extracted via "Scan a photo", attached on the next save
-let photoScanMatch = null;   // top find_similar match for the scanned draft (Compare & merge)
+// Duplicate candidates for whatever the editor is currently holding. Filled by
+// checkSimilar() on every open, every populate and (debounced) as the name is typed,
+// so a near-duplicate is visible before saving no matter how the recipe got here —
+// typed by hand, scanned, pasted, imported. Was previously set on the photo-scan
+// path alone, which left manual entry with no check at all.
+let editorMatches = [];
+let similarTimer = null;
 // Index into the matching data.* array whose inline edit form is open, or null.
 let editingEvent = null, editingBirthday = null, editingRecurring = null;
 let mealWeekStart = getMondayOf(new Date());
@@ -1955,10 +1961,59 @@ async function importNotionZip(file) {
   input.value = '';   // allow re-selecting the same file
 }
 
+// Ask the backend for look-alikes of what's in the form right now and render a
+// banner. Never throws: a failed check must not block saving a recipe.
+async function checkSimilar() {
+  const name = document.getElementById('rf-name')?.value.trim() || '';
+  const st   = document.getElementById('recipe-save-status');
+  if (!st) return;
+  if (name.length < 3) { editorMatches = []; renderSimilarBanner(); return; }
+  const p = new URLSearchParams({ name });
+  const stype = document.getElementById('rf-source-type')?.value || '';
+  const sval  = document.getElementById('rf-source-value')?.value.trim() || '';
+  if (stype) p.set('source_type', stype);
+  if (sval)  p.set('source_value', sval);
+  // Ingredients drive find_similar's third gate, which is what catches a renamed
+  // copy ("Swedish Meatballs" vs "Meatballs") that the name ratio alone misses.
+  try {
+    for (const i of getIngredients()) if (i.item) p.append('ingredient', i.item);
+  } catch (e) { /* rows not rendered yet — name and source are enough */ }
+  if (editingRecipeId) p.set('exclude', editingRecipeId);   // never match itself
+  try {
+    const r = await fetch(`${API}/recipes/similar?${p}`);
+    editorMatches = (await r.json()).matches || [];
+  } catch (e) { editorMatches = []; }
+  renderSimilarBanner();
+}
+
+function scheduleSimilarCheck() {
+  clearTimeout(similarTimer);
+  similarTimer = setTimeout(checkSimilar, 350);   // typing a name shouldn't spam it
+}
+
+function renderSimilarBanner() {
+  const st = document.getElementById('recipe-save-status');
+  if (!st) return;
+  if (!editorMatches.length) {
+    if (st.dataset.similar === '1') { st.textContent = ''; st.style.color = 'var(--text2)'; }
+    st.dataset.similar = '';
+    return;
+  }
+  st.dataset.similar = '1';
+  const names = editorMatches.slice(0, 3).map(m =>
+    `<b>${shopEsc(m.name)}</b> <span style="opacity:.7">(${shopEsc(m.reason)})</span>`).join(', ');
+  // Merge is offered against the strongest match only; "Save as new" is still right
+  // there below, so this warns without blocking.
+  st.innerHTML = `⚠ Similar already in the library: ${names} — `
+    + `<button class="btn-add" style="padding:2px 8px;" onclick="compareEditorMatch()">Compare &amp; merge</button>`
+    + ` or Save as new below.`;
+  st.style.color = 'var(--danger)';
+}
+
 async function openRecipeForm(id) {
   editingRecipeId = id;
   pendingPhotoId = null;   // a normal open/edit discards any un-saved scanned photo
-  photoScanMatch = null;
+  editorMatches = [];
   document.getElementById('recipe-list-view').style.display = 'none';
   document.getElementById('recipe-form-view').style.display = 'block';
   document.getElementById('recipe-form-title').textContent = id ? 'Edit recipe' : 'New recipe';
@@ -1974,6 +2029,7 @@ async function openRecipeForm(id) {
   } else {
     clearRecipeForm();
   }
+  scheduleSimilarCheck();  // editing an existing one too: it may duplicate another
 }
 
 function closeRecipeForm() {
@@ -1981,7 +2037,8 @@ function closeRecipeForm() {
   document.getElementById('recipe-list-view').style.display = 'block';
   editingRecipeId = null;
   pendingPhotoId = null;
-  photoScanMatch = null;
+  editorMatches = [];
+  clearTimeout(similarTimer);
   renderRecipes();                            // show any just-saved edits in the list
 }
 
@@ -2044,15 +2101,15 @@ async function extractRecipePhoto(file) {
     populateRecipeForm(recipe);
     pendingPhotoId = photo_id;                  // attach on save
     document.getElementById('recipe-form-title').textContent = 'Review scanned recipe';
-    photoScanMatch = (matches && matches.length) ? matches[0] : null;
-    const st = document.getElementById('recipe-save-status');
-    if (photoScanMatch) {
-      st.innerHTML = `⚠ Looks like <b>${shopEsc(photoScanMatch.name)}</b> already exists — ` +
-        `<button class="btn-add" style="padding:2px 8px;" onclick="comparePhotoMatch()">Compare &amp; merge</button> or Save as new below.`;
-      st.style.color = 'var(--danger)';
-    } else {
+    // The scan already ran find_similar server-side; reuse that answer rather than
+    // asking twice, then fall through to the same banner every other entry uses.
+    clearTimeout(similarTimer);        // populate queued one; we already have the answer
+    editorMatches = matches || [];
+    if (!editorMatches.length) {
+      const st = document.getElementById('recipe-save-status');
       st.textContent = 'Review the extracted fields, then Save.'; st.style.color = 'var(--text2)';
     }
+    renderSimilarBanner();
     status.textContent = '';
   } catch (e) {
     status.textContent = 'Couldn’t read a recipe from that photo.'; status.style.color = 'var(--danger)';
@@ -2111,6 +2168,7 @@ function populateRecipeForm(r) {
   setTagBtns('rf-dietary-btns', r.dietary || []);
   renderIngredients(r.ingredients || []);
   renderSteps(r.steps || []);
+  scheduleSimilarCheck();   // whatever filled the form, look for look-alikes
 }
 
 function setTagBtns(groupId, selected) {
@@ -2212,11 +2270,11 @@ function buildRecipeFromForm() {
   };
 }
 
-// From the scan/photo review, queue the current draft against its match and open
-// the side-by-side merge instead of saving a duplicate.
-async function comparePhotoMatch() {
-  if (!photoScanMatch) return;
-  const m = photoScanMatch;
+// Queue the recipe currently in the editor against its strongest look-alike and open
+// the side-by-side merge instead of saving a duplicate. Reached from any entry method.
+async function compareEditorMatch() {
+  if (!editorMatches.length) return;
+  const m = editorMatches[0];
   const recipe = buildRecipeFromForm();
   if (!recipe.name) { alert('Recipe name is required.'); return; }
   try {

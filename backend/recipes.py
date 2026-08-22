@@ -20,14 +20,14 @@ from html import unescape
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 import ai
 from activity_log import log_event, parse_ai_json
 from bus import broadcast
 from display_cache import build_display_cache
 from storage import (PENDING_DIR, RECIPE_COURSES, SHOP_CATEGORIES, _attach_photo_bytes,
-                     _attach_pending_photo, _save_ai_recipe, _slugify, _unique_recipe_id,
+                     _attach_pending_photo, _save_ai_recipe, _unique_recipe_id,
                      _upsert_index, _write_lock, delete_pending_recipe, delete_recipe_file,
                      list_pending_recipes, read_pending_recipe, read_recipe_file,
                      read_recipe_index, rebuild_recipe_index, write_pending_recipe,
@@ -555,7 +555,10 @@ async def _import_recipe(p: dict):
     draft  = await _ai_extract_recipe_text(text, bool(p.get("translate")))   # may raise → retried
     recipe = _recipe_from_draft(draft, source)
     async with _write_lock:
-        recipe["id"] = _slugify(recipe["name"])
+        # Non-destructive: _slugify here meant a second import of the same dish
+        # replaced the first. This path still does no duplicate check of its own
+        # (unlike the photo command above) — it just can no longer destroy anything.
+        recipe["id"] = _unique_recipe_id(recipe["name"])
         write_recipe_file(recipe["id"], recipe)
         _upsert_index(recipe)
         build_display_cache()
@@ -637,9 +640,20 @@ def get_recipe_index():
 # NOTE: the specific /recipes/* GET routes below must precede /recipes/{recipe_id},
 # or FastAPI would match "similar"/"pending" as a recipe id.
 @router.get("/recipes/similar")
-def similar_recipes(name: str = "", source_type: str = "", source_value: str = ""):
-    """Ad-hoc duplicate check for the editor (F8b)."""
-    return {"matches": find_similar(name, {"type": source_type, "value": source_value})}
+def similar_recipes(name: str = "", source_type: str = "", source_value: str = "",
+                    ingredient: list[str] = Query(default=[]), exclude: str = ""):
+    """Ad-hoc duplicate check for the editor (F8b).
+
+    The editor runs this on every recipe it holds, however that recipe got there —
+    typed by hand, scanned, extracted from a link — so a near-duplicate is visible
+    before saving rather than only on the import paths that happened to check.
+
+    `ingredient` (repeatable) feeds find_similar's third gate, which catches a
+    renamed copy that a name comparison alone misses ("Swedish Meatballs" against
+    "Meatballs"). `exclude` drops one id from the results: editing a saved recipe
+    would otherwise always match itself at 1.0."""
+    matches = find_similar(name, {"type": source_type, "value": source_value}, ingredient)
+    return {"matches": [m for m in matches if m["id"] != exclude]}
 
 @router.get("/recipes/pending")
 def get_pending():
@@ -810,7 +824,11 @@ async def create_recipe(request: Request):
     recipe = await request.json()
     async with _write_lock:
         if not recipe.get("id"):
-            recipe["id"] = _slugify(recipe.get("name", "recipe"))
+            # _unique_recipe_id, not _slugify: a second "Meatballs" used to slugify to
+            # the same id and then write_recipe_file + _upsert_index replaced the first
+            # one outright — no warning, no log line, the original simply gone. Every
+            # other save site in this file already suffixes -2/-3; this was the gap.
+            recipe["id"] = _unique_recipe_id(recipe.get("name", "recipe"))
         _coerce_course(recipe)
         pending_photo = recipe.pop("_pending_photo", None)
         photo_who     = recipe.pop("_photo_who", "")
