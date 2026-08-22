@@ -179,6 +179,13 @@ _PENDING_META = {"pendingId", "matchId", "matchName", "matchScore", "created", "
 # page looks like two dishes — save both or keep it as one). Items written before
 # `kind` existed have no such key, so absent reads as "duplicate".
 PENDING_DUPLICATE, PENDING_SPLIT = "duplicate", "split"
+
+# Attribution for recipes nobody in the household wrote. A meal-kit sheet that the
+# split pass pulled apart has no individual author: the page came from Hello Fresh
+# and a person only photographed it. Not a calendar member — like the UI's "unknown"
+# it is an attribution value only, so it never reaches the event-owner picker or the
+# Inky legend. Kept in sync with SYNTHETIC_ENTERERS in admin.html.
+MEAL_KIT_ENTERER = "meal-kit"
 # Fields the merge UI can overwrite (id/log/rating are always preserved; photos
 # are always unioned). "time" is a pseudo-field covering the three time keys.
 _MERGE_FIELDS = {"name", "description", "ingredients", "steps", "notes", "variations",
@@ -225,7 +232,14 @@ def _save_split_half(dish: dict, other_name: str, photos: list, who: str) -> dic
         line  = f"Serve with: {other_name}"
         notes = (dish.get("notes") or "").strip()
         dish["notes"] = notes if line in notes else f"{notes}\n{line}".strip()
-    dish.setdefault("log", {"entered_by": who, "entered_at": date.today().isoformat()})
+    # Set entered_by outright rather than setdefault: _dish_from_split copies the
+    # original recipe wholesale, so a `log` is always already present and setdefault
+    # silently dropped this argument. Keep the original's date — the sheet was
+    # entered when it was scanned, not when the split was confirmed.
+    log = dict(dish.get("log") or {})
+    log["entered_by"] = who
+    log.setdefault("entered_at", date.today().isoformat())
+    dish["log"] = log
     if photos:
         dish["photos"] = list(photos)
     write_recipe_file(dish["id"], dish)
@@ -764,11 +778,14 @@ async def resolve_pending(pid: str, request: Request):
                 dup = find_similar(dish.get("name", ""), dish.get("source") or {},
                                    [i.get("item", "") for i in (dish.get("ingredients") or [])],
                                    limit=1)
+                # Both halves are attributed to the meal kit, not to whoever held the
+                # phone: the split only fires on a sheet that came pre-written with two
+                # dishes on it, so no member authored either recipe.
                 if dup:
-                    queued.append(_queue_pending(dish, dup[0], draft.get("who", "")))
+                    queued.append(_queue_pending(dish, dup[0], MEAL_KIT_ENTERER))
                 else:
                     saved.append(_save_split_half(dish, other.get("name", ""), photos,
-                                                  draft.get("who", ""))["id"])
+                                                  MEAL_KIT_ENTERER)["id"])
             delete_pending_recipe(pid)              # same lock: resolve is all-or-nothing
             build_display_cache()
         await broadcast("update", {"section": "recipes"})

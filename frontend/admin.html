@@ -1443,14 +1443,20 @@ function removeRecurring(i) { data.recurring.splice(i, 1); renderRecurring(); sa
 
 // ── Recipes ───────────────────────────────────────────────────
 // Recipe attribution is a fixed set (not the calendar members) — who entered
-// it, limited to the two adult roles ('owner', 'spouse'), plus Unknown.
+// it, limited to the two adult roles ('owner', 'spouse'), plus the synthetic ids
+// below. Those are attribution values only, deliberately NOT members: a member
+// would also appear in the event-owner picker and on the Inky's legend, and
+// "Meal kit" owns no calendar events. 'meal-kit' is assigned by the backend when a
+// meal-kit sheet is split into two dishes — nobody in the house wrote that page.
+// Keep in sync with MEAL_KIT_ENTERER in backend/recipes.py.
 const RECIPE_ENTERER_IDS = ['owner', 'spouse'];
+const SYNTHETIC_ENTERERS = { 'meal-kit': 'Meal kit', 'unknown': 'Unknown' };
 function recipeEnterers() {
   const list = (data.settings?.members || []).filter(m => RECIPE_ENTERER_IDS.includes(m.id)).map(m => ({ id: m.id, label: m.label }));
-  list.push({ id: 'unknown', label: 'Unknown' });
+  for (const [id, label] of Object.entries(SYNTHETIC_ENTERERS)) list.push({ id, label });
   return list;
 }
-const entererLabel = id => id === 'unknown' ? 'Unknown' : ((data.settings?.members || []).find(m => m.id === id)?.label || '');
+const entererLabel = id => SYNTHETIC_ENTERERS[id] || ((data.settings?.members || []).find(m => m.id === id)?.label || '');
 const entererOptions = () => recipeEnterers().map(e => `<option value="${shopEsc(e.id)}">${shopEsc(e.label)}</option>`).join('');
 
 function renderRecipes() {

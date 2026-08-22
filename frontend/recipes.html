@@ -117,7 +117,14 @@ function fold(s){ return (s||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function courseOf(r){ return RECIPE_COURSES.includes(r.course) ? r.course : 'other'; }
-function whoLabel(id){ const m = members.find(x => x.id === id); return m ? m.label : (id || ''); }
+// Attribution ids that are deliberately not calendar members (see admin.html's
+// SYNTHETIC_ENTERERS and MEAL_KIT_ENTERER in backend/recipes.py). Without these the
+// filter would show the raw id — "meal-kit" — beside proper member names.
+const SYNTHETIC_ENTERERS = { 'meal-kit': 'Meal kit', 'unknown': 'Unknown' };
+function whoLabel(id){
+  if (SYNTHETIC_ENTERERS[id]) return SYNTHETIC_ENTERERS[id];
+  const m = members.find(x => x.id === id); return m ? m.label : (id || '');
+}
 function opt(v,l,sel){ return `<option value="${esc(v)}"${sel?' selected':''}>${esc(l)}</option>`; }
 
 async function init(){

@@ -230,3 +230,45 @@ def test_discard_still_works_on_a_split(client):
     assert client.post(f"/recipes/pending/{pid}/resolve", json={"action": "discard"}).status_code == 200
     assert storage.read_pending_recipe(pid) is None
     assert storage.read_recipe_index() == []
+
+
+# ── attribution ──────────────────────────────────────────────────────────────
+def test_both_halves_are_attributed_to_the_meal_kit(client):
+    """Nobody in the house wrote a Hello Fresh page — a person only photographed it.
+    The scanner's name ("burak") must not end up as the author of either dish."""
+    pid = _queue(client)
+    client.post(f"/recipes/pending/{pid}/resolve", json={"action": "split_both"})
+
+    for e in storage.read_recipe_index():
+        assert storage.read_recipe_file(e["id"])["log"]["entered_by"] == recipes.MEAL_KIT_ENTERER
+
+
+def test_attribution_survives_dict_copied_log(client):
+    """_dish_from_split copies the original recipe wholesale, so each half arrives
+    with the scanner's `log` already set. A setdefault here is a silent no-op."""
+    pid = _queue(client)
+    client.post(f"/recipes/pending/{pid}/resolve", json={"action": "split_both"})
+    saved = [storage.read_recipe_file(e["id"]) for e in storage.read_recipe_index()]
+
+    assert saved and all(r["log"]["entered_by"] != "burak" for r in saved)
+    # The date the sheet was scanned is kept; only the author changes.
+    assert all(r["log"]["entered_at"] == "2026-08-18" for r in saved)
+
+
+def test_a_duplicate_half_is_queued_as_meal_kit_too(client):
+    client.post("/recipes", json={"id": "potatissallad", "name": "Potatissallad"})
+    pid = _queue(client)
+
+    body = client.post(f"/recipes/pending/{pid}/resolve", json={"action": "split_both"}).json()
+
+    assert storage.read_pending_recipe(body["pendingIds"][0])["who"] == recipes.MEAL_KIT_ENTERER
+
+
+def test_keeping_it_as_one_leaves_the_scanner_as_author(client):
+    """Only a split reattributes. Declining it means the human called it one dish,
+    and the ordinary photo-scan path is untouched by any of this."""
+    pid = _queue(client)
+    client.post(f"/recipes/pending/{pid}/resolve", json={"action": "split_none"})
+
+    idx = storage.read_recipe_index()
+    assert storage.read_recipe_file(idx[0]["id"])["log"]["entered_by"] == "burak"
