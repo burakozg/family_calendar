@@ -94,3 +94,45 @@ def test_publish_carries_ticks_forward_and_prunes_only_what_left(c):
 def test_state_requires_the_device_token(c):
     assert c.post("/state", json={"bought": []}).status_code in (401, 403)
     assert c.post("/state", headers=PUB, json={"bought": []}).status_code in (401, 403)
+
+
+def _publish_empty(c):
+    """What the NAS actually sends when no meal is planned for the window — which
+    happens routinely at an ISO-week rollover, before the new week's plan exists."""
+    c.post("/publish", headers=PUB, json={
+        "week": "2026-35", "start": "2026-08-24", "days": [], "have": [], "extras": []})
+
+
+def test_an_empty_window_does_not_delete_every_tick(c):
+    """The wipe. Pruning against an empty `live` set drops all of them at once.
+    Observed live: five days:0 publishes in one second at 2026-08-24T00:15:31Z."""
+    _publish(c, bought_survives=("tomato", "onion"))
+    c.post("/state", headers=DEV, json={"bought": ["tomato", "onion"]})
+
+    _publish_empty(c)
+
+    assert c.get("/list", headers=DEV).json()["bought"] == ["tomato", "onion"]
+
+
+def test_the_next_real_window_still_prunes(c):
+    """The guard defers pruning, it must not disable it."""
+    _publish(c, bought_survives=("tomato", "onion"))
+    c.post("/state", headers=DEV, json={"bought": ["tomato", "onion"]})
+
+    _publish_empty(c)                       # deferred
+    _publish(c, bought_survives=("tomato",))  # onion genuinely gone now
+
+    assert c.get("/list", headers=DEV).json()["bought"] == ["tomato"]
+
+
+def test_an_extras_only_window_is_not_empty(c):
+    """Extras count as live items, so a window with no recipe days but a manual
+    extra is real information and prunes normally."""
+    _publish(c, bought_survives=("tomato", "onion"))
+    c.post("/state", headers=DEV, json={"bought": ["tomato", "onion"]})
+
+    c.post("/publish", headers=PUB, json={
+        "week": "2026-35", "start": "2026-08-24", "days": [], "have": [],
+        "extras": [{"item": "Tomato", "who": ""}]})
+
+    assert c.get("/list", headers=DEV).json()["bought"] == ["tomato"]

@@ -251,12 +251,23 @@ async def publish(request: Request):
     store = read_store()
     prev  = store["shopping"]
     bought = list(prev.get("bought") or [])
+    skipped_prune = False
     if bought:
         # Keep ticks whose item still appears — in a recipe OR in a manual extra (F9).
         live = {(ing.get("item") or "").strip().lower()
                 for d in days for ing in (d.get("ingredients") or [])}
         live |= {(e.get("item") or "").strip().lower() for e in extras if isinstance(e, dict)}
-        bought = [b for b in bought if b in live]
+        if live:
+            bought = [b for b in bought if b in live]
+        else:
+            # An empty window means "I currently know of no items", NOT "the list is
+            # empty" — and pruning against it deletes every tick at once. The NAS
+            # publishes days:0 whenever no meal is planned for the window, which
+            # happens routinely at an ISO-week rollover before the new week's plan
+            # exists: observed five times in one second at 2026-08-24T00:15:31Z.
+            # Nothing legitimate is lost by waiting for a window that has content;
+            # the next publish a minute later prunes correctly.
+            skipped_prune = True
 
     pruned = len(prev.get("bought") or []) - len(bought)
     store["shopping"] = {
@@ -268,6 +279,7 @@ async def publish(request: Request):
     # useful number when check-offs go missing, and it was not being recorded.
     rlog("publish_shopping", week=week, start=start, days=len(days),
          bought=f"{len(prev.get('bought') or [])}->{len(bought)}", pruned=pruned,
+         skipped_prune=skipped_prune,
          have=f"{len(prev.get('have') or [])}->{len(have)}")
     return {"ok": True}
 
