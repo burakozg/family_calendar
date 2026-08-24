@@ -297,6 +297,63 @@ def _current_week_key() -> str:
     return _week_key_of(date.today())
 
 
+async def pull_shopping_state() -> bool:
+    """Copy the phone's check-off state from the relay into shopping.json.
+
+    Without this, `bought` had exactly one copy — on the relay — because publish
+    only ever pushes state outward (it literally sends `"bought": []`). Ticks made
+    on the phone therefore lived outside the NAS entirely, and so outside the daily
+    backup: when they were lost there was no home copy to compare against, let
+    alone restore from. This closes that loop.
+
+    Deliberately conservative about what it will overwrite:
+      - a relay with no `state_updated_at` has never been ticked (blank store, fresh
+        volume, error) and is ignored entirely, so it can never blank the NAS;
+      - a state we have already recorded is skipped, so the ~90s poll does not
+        rewrite the file forever;
+      - only then is the relay treated as authoritative, which it is, because it is
+        where the phone writes.
+    Returns True when something was written. Never raises: this must not be able to
+    break the sync loop.
+    """
+    if not relay_client._relay_ready():
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(f"{relay_client.SHOP_RELAY_URL}/list",
+                                    headers=_relay_headers())
+        if resp.status_code != 200:
+            _log_relay("relay.pull_shopping", False, {"status": resp.status_code})
+            return False
+        doc = resp.json()
+    except Exception as e:
+        _log_relay("relay.pull_shopping", False, {"error": str(e)})
+        return False
+
+    stamp = str(doc.get("state_updated_at") or "").strip()
+    if not stamp:
+        return False                      # never ticked — nothing to learn from it
+    week = str(doc.get("week") or "").strip() or _week_key_of(date.today())
+    bought = [str(b) for b in (doc.get("bought") or [])]
+
+    async with _write_lock:
+        data  = read_shopping()
+        entry = data.get(week) or {}
+        if entry.get("relay_state_at") == stamp:
+            return False                  # already recorded this one
+        # `bought` only. `have` is authored at home and the phone has no UI for it,
+        # so the relay's copy is just a mirror of this file — pulling it back would
+        # add a way to clobber a fresh home edit and buy nothing.
+        entry["bought"]         = bought
+        entry["relay_state_at"] = stamp
+        data[week] = entry                # keep 'have' and 'extras' (F9) untouched
+        write_shopping(data)
+    log_event("cloud", "relay.pull_shopping",
+              f"Recorded {len(bought)} phone check-off(s) for {week}",
+              detail={"week": week, "state_updated_at": stamp})
+    return True
+
+
 async def republish_shopping() -> bool:
     """Re-push the rolling window (always anchored on today) so the relay self-heals
     between explicit publishes. Called by the background sync loop; a no-op when the

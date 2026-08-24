@@ -112,7 +112,13 @@ async function fetchList(){
     if (r.status === 401) { onUnauthorized(); return; }
     if (!r.ok) throw new Error(r.status);
     const doc = await r.json();
-    localStorage.setItem(LS_LIST, JSON.stringify(doc));
+    // Persist the fresh list, but keep unsynced ticks in the stored copy too. This
+    // write used to be unconditional while the guard below protected memory only,
+    // so a reload before the next /state push adopted the server's older `bought`
+    // and silently dropped the local ticks — which the following push then made
+    // permanent, since /state replaces rather than merges.
+    const toStore = (dirty && data) ? { ...doc, bought: [...data.bought] } : doc;
+    localStorage.setItem(LS_LIST, JSON.stringify(toStore));
     // Don't clobber unsynced local ticks: only adopt server state if we're clean.
     if (!dirty) adopt(doc); else { data.week=doc.week; data.start=doc.start||''; data.days=doc.days||[]; absorbExtras(doc); }
     setDot('on'); renderShop();

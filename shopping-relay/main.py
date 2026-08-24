@@ -258,12 +258,17 @@ async def publish(request: Request):
         live |= {(e.get("item") or "").strip().lower() for e in extras if isinstance(e, dict)}
         bought = [b for b in bought if b in live]
 
+    pruned = len(prev.get("bought") or []) - len(bought)
     store["shopping"] = {
         "week": week, "start": start, "days": days, "extras": extras, "have": have, "bought": bought,
         "published_at": _now(), "state_updated_at": prev.get("state_updated_at", ""),
     }
     write_store(store)
-    rlog("publish_shopping", week=week, start=start, days=len(days))
+    # `pruned` is the number of ticks this publish dropped. It is the single most
+    # useful number when check-offs go missing, and it was not being recorded.
+    rlog("publish_shopping", week=week, start=start, days=len(days),
+         bought=f"{len(prev.get('bought') or [])}->{len(bought)}", pruned=pruned,
+         have=f"{len(prev.get('have') or [])}->{len(have)}")
     return {"ok": True}
 
 @app.get("/list")
@@ -274,14 +279,29 @@ def get_list(request: Request):
 
 @app.post("/state")
 async def set_state(request: Request):
-    """Phone updates check-off state. Body: {have, bought}."""
+    """Phone updates check-off state. Body: {have?, bought?} — a PATCH, not a replace.
+
+    Assigning both keys unconditionally destroyed data: the phone only ever sends
+    `bought` (it has no UI for `have` at all), so every single tick reset the
+    "already have at home" list to empty. A key absent from the body now means
+    "unchanged" rather than "empty".
+    """
     require(request, DEVICE_TOKEN)
     body = await request.json()
     store = read_store()
-    store["shopping"]["have"] = list(body.get("have") or [])
-    store["shopping"]["bought"] = list(body.get("bought") or [])
-    store["shopping"]["state_updated_at"] = _now()
+    sh    = store["shopping"]
+    before = {k: len(sh.get(k) or []) for k in ("have", "bought")}
+    for key in ("have", "bought"):
+        if key in body:
+            sh[key] = list(body.get(key) or [])
+    sh["state_updated_at"] = _now()
     write_store(store)
+    after = {k: len(sh.get(k) or []) for k in ("have", "bought")}
+    # Tick counts before/after every transition. Reconstructing a loss without this
+    # meant inferring it from a single surviving timestamp.
+    rlog("set_state", keys=sorted(body.keys()),
+         have=f"{before['have']}->{after['have']}",
+         bought=f"{before['bought']}->{after['bought']}")
     return {"ok": True}
 
 # ── Calendar mirror (NAS → phone) ─────────────────────────────────────────────

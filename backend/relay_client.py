@@ -325,9 +325,12 @@ async def _relay_sync_loop():
             try:    await publish_calendar()
             except Exception as e: log_event("cloud", "relay.sync", f"Calendar publish crashed: {e}", level="error")
             try:
-                from shopping import republish_shopping   # lazy: shopping imports us
+                # Pull before publishing: the phone's ticks only exist on the relay
+                # until this records them, and publish does not carry them back.
+                from shopping import pull_shopping_state, republish_shopping   # lazy: shopping imports us
+                await pull_shopping_state()
                 await republish_shopping()
-            except Exception as e: log_event("cloud", "relay.sync", f"Shopping publish crashed: {e}", level="error")
+            except Exception as e: log_event("cloud", "relay.sync", f"Shopping sync crashed: {e}", level="error")
             try:    await drain_relay_inbox()
             except Exception as e: log_event("cloud", "relay.sync", f"Inbox drain crashed: {e}", level="error")
         await asyncio.sleep(max(15, SHOP_RELAY_POLL_SECONDS))
