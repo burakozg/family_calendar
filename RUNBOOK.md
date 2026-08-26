@@ -8,41 +8,53 @@ setup in [HOME_HTTPS_SETUP.md](HOME_HTTPS_SETUP.md).
 
 | You changed | Do this |
 |---|---|
-| Python / HTML | `./deploy push-src` → Container Station **Restart** |
-| `backend/requirements.txt` | Container Station → **Recreate** (the image must rebuild) |
-| a secret in `.env` | `./deploy nas` → **Recreate** (**not** Restart — see below) |
-| `docker-compose.nas.yml` | `./deploy nas` → paste → **Recreate** |
-| the `Caddyfile` | `./deploy proxy` → **Restart** (it's bind-mounted) |
+| Python / HTML | `./deploy` |
+| `backend/requirements.txt` | `./deploy` |
+| a secret in `.env` | `./deploy` |
+| `docker-compose.nas.yml` | `./deploy` |
+| the `Caddyfile` | `./deploy proxy` |
 | the relay (`shopping-relay/`) | bump `sw.js` cache → `fly deploy` (see below) |
 | the Mac instance, anything | `./deploy mac` |
 
-**The `env_file` rule:** `env_file` is read when a container is **created**, never
-when it is restarted. Change a secret and Restart, and the container keeps the old
-value — silently. This cost us an outage; it is the single easiest mistake to make
-here.
+That column used to hold a different Container Station click per row — Restart for
+some changes, Recreate for others, and picking wrong failed silently. The NAS stack
+is a plain compose project deployed over ssh now, and `./deploy` covers every row.
 
-The mirror image: **code is bind-mounted**, so a Restart *is* enough for Python and
-HTML edits — no rebuild, no Recreate.
+The two rules that made the old table necessary are still true; `./deploy` just
+obeys them for you:
+
+- **`env_file` is read when a container is CREATED**, never when it is restarted.
+  Change a secret and merely restart, and the container keeps the old value,
+  silently. This cost us an outage.
+- **Code is bind-mounted, not baked into the image.** So a `.py` edit changes
+  neither the image nor the compose config, and a plain `compose up -d` finds
+  nothing to do and leaves the old code running — equally silent.
+
+`apply` therefore force-recreates the backend every time, which satisfies both. It
+recreates *only* the backend, so HTTPS stays up, and that is only routinely safe
+because the MACs are pinned (see `docker-compose.nas.yml`).
 
 ## `./deploy`
 
-Run it on the **Mac**. It drives both machines; the NAS half stops where Container
-Station takes over, because Container Station owns the container lifecycle.
+Run it on the **Mac**. It drives both machines end to end — the NAS half no longer
+stops at a UI step.
 
 ```sh
-./deploy                    # mac + nas
+./deploy                    # ship the source, then build + apply on the NAS
 ./deploy mac                # build → stop → remove → recreate → wait for /healthz
-./deploy nas                # push .env, pin user:, render the YAML to the clipboard
+./deploy apply              # push .env, ship the compose file, build + up on the NAS
 ./deploy proxy [--staging]  # ship the Caddy build context + its .env
 ./deploy data-pull          # NAS → Mac  (one-way by design; backs up first)
 ./deploy check              # health-probe both + verify the TLS cert
 ```
 
-`./deploy nas` renders `docker-compose.nas.yml` into `deploy-out/nas-app.yml`
-(git-ignored, regenerated on demand) and copies it to the clipboard. Paste it into
-*Container Station → family-calendar → Recreate*. It reads the real owner of the
-NAS `data/` and rewrites `user:` to match — the container runs non-root with a
-read-only rootfs, so a uid mismatch is an instant crash loop.
+`./deploy apply` renders `docker-compose.nas.yml` into
+`deploy-out/docker-compose.nas.yml` (git-ignored, regenerated on demand), ships it
+to the NAS as its `docker-compose.yml`, and brings the stack up over ssh. It reads
+the real owner of the NAS `data/` and rewrites `user:` to match — the container
+runs non-root with a read-only rootfs, so a uid mismatch is an instant crash loop.
+It also fills in the qnet addresses and their pinned MACs, so no real address is
+ever in a tracked file.
 
 Everything needing ssh only works on the **home LAN or the VPN**. Set up a key once,
 or you'll retype the password on every step:
@@ -63,8 +75,11 @@ ssh-copy-id -p 44 admin@nas.local
 | Relay (cloud) | `https://family-shopping-relay.fly.dev` |
 | Mac instance | `http://localhost:8000` |
 
-Container Station runs **one application with two services** (`family-calendar` +
-`family-cal-proxy`), so one Recreate deploys both.
+The NAS runs **one compose project with two services** (`family-calendar` +
+`family-cal-proxy`), so one `./deploy` covers both. The project is named
+`family-calendar` and that name is load-bearing: compose derives
+`family-calendar_caddy_data` from it, and that volume holds the Let's Encrypt
+certificate.
 
 ## How the NAS gets everything (QSync is OFF)
 
@@ -73,16 +88,16 @@ explicitly over ssh — nothing arrives by magic, and nothing arrives half-writt
 
 | What | How |
 |---|---|
-| `backend/`, `frontend/` | `./deploy push-src` |
-| `.env` | `./deploy nas` |
-| `docker-compose.nas.yml` | `./deploy nas` → paste into Container Station |
+| `backend/`, `frontend/` | `./deploy ship` |
+| `.env` | `./deploy apply` |
+| `docker-compose.nas.yml` | `./deploy apply` (rendered, then shipped) |
 | Caddy `Dockerfile` / `Caddyfile` / its `.env` | `./deploy proxy` |
 | `data/` | never copied to the NAS — **the NAS owns it.** `./deploy data-pull` brings it *here* |
 
 `./deploy sync-check` answers "is the NAS running the same source as this Mac?" —
 cheap, and worth running before any Restart.
 
-`push-src` is a true **mirror**: it tars the source over, then deletes any `.py`/`.html`
+`ship` is a true **mirror**: it tars the source over, then deletes any `.py`/`.html`
 on the NAS that no longer exists here (`tar -x` only overlays — and a stale Python
 file is worse than a missing one, because it still imports). It also purges the
 `__pycache__` trees QSync left behind.
@@ -214,13 +229,20 @@ LAN IP, so it reaches nothing from outside.
 
 ## Gotchas, learned the hard way
 
-- **`env_file` needs a Recreate, not a Restart.** (Worth repeating.)
-- **Container Station rejects resource limits in the YAML** — no `mem_limit` /
-  `pids_limit`; set memory in its Advanced Settings instead.
+- **`env_file` needs a Recreate, not a Restart.** (Worth repeating.) `./deploy`
+  force-recreates the backend for exactly this reason.
+- **A `.py` edit changes neither the image nor the compose config**, because the
+  source is bind-mounted — so `compose up -d` alone finds nothing to do and leaves
+  the old code running. Same fix, same reason.
+- **Resource limits can live in `docker-compose.nas.yml` now.** Container Station
+  rejected them in pasted YAML and wanted them in its Advanced Settings panel;
+  that constraint went with the Application wrapper. Nothing is set yet.
 - **`docker compose config` expands `env_file` back into `environment:`** — so it
   can't be used to render a secret-free YAML. The NAS compose is secret-free at
-  source instead, and Container Station stores/displays its YAML in **plaintext**,
-  which is why no secret may ever go in it.
+  source instead.
+- **Pin MACs for anything on the qnet macvlan.** Docker randomises the MAC on every
+  create; the router then answers for the old one and the container comes back
+  healthy, correctly routed, and unreachable inbound for minutes.
 - **QNAP has no working `scp`/sftp.** Files go over ssh with `cat >` / `tar`.
 - **Don't re-enable QSync for this folder.** It half-delivered source and cost hours;
   everything now ships explicitly (see above).

@@ -3,7 +3,7 @@
 _inkyframe/secrets.py
 
 # Local deploy config (real NAS host/IPs — see deploy.env.example)
-.deploy.env
+.deploy.env*
 
 # Runtime data (bind-mounted into the container)
 data/

@@ -32,7 +32,7 @@ Everything runs on a home server (a QNAP NAS in this deployment) inside a single
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how the pieces fit together and the data
 model, **[DEPLOY.md](DEPLOY.md)** for the `./deploy` command reference, and
 **[RUNBOOK.md](RUNBOOK.md)** for the day-to-day operating reference —
-what to Restart vs Recreate, the `./deploy` commands, file-sync and certificate
+the `./deploy` commands, file-sync and certificate
 rules, and the gotchas worth not rediscovering.
 
 ## What's new
@@ -110,14 +110,14 @@ Highlights only — `git log` is the full history.
 ### Deploying — `./deploy`
 
 Mac and NAS are two independent tracks. They build from the same `backend/Dockerfile`
-but on **different Docker daemons** (Docker Desktop vs Container Station), so they
+but on **different Docker daemons** (Docker Desktop vs the NAS's), so they
 never clobber each other; the images are tagged `family-calendar:mac` and
 `family-calendar:nas`. One script drives both, from the Mac:
 
 ```bash
-./deploy                    # both tracks
+./deploy                    # ship the source, then build + apply on the NAS
 ./deploy mac                # build, stop, remove, recreate the local container; wait for /healthz
-./deploy nas                # prepare the NAS deploy (see below)
+./deploy apply              # push .env, ship the compose file, build + up on the NAS
 ./deploy proxy [--staging]  # ship the Caddy/HTTPS assets (see RUNBOOK.md)
 ./deploy data-pull          # refresh the Mac's data/ from the NAS (see File sync, below)
 ./deploy check              # health-probe both, and verify the TLS cert
@@ -127,9 +127,10 @@ never clobber each other; the images are tagged `family-calendar:mac` and
 `data/` — the container is non-root with a read-only rootfs, so only `data/` is
 writable and a uid mismatch would crash-loop it.
 
-**NAS** runs the app as a Container Station **Application**, so create/recreate/
-start/stop happen in the Container Station UI, not over the CLI. `./deploy nas`
-therefore does the parts that *can* be automated and hands you the rest:
+**NAS** is a plain compose project deployed over ssh, so `./deploy` drives it end
+to end — no UI step. It used to be a Container Station **Application**, which meant
+the deploy stopped at "render the YAML, paste it, press Recreate"; see
+`docker-compose.nas.yml`'s header for why that changed. `./deploy apply`:
 
 1. **Pushes `.env` over ssh** — file sync skips dotfiles, so the NAS copy goes
    stale; without this the container starts with no API key and no relay tokens.
@@ -137,28 +138,29 @@ therefore does the parts that *can* be automated and hands you the rest:
    file and `mv`'d into place (atomic, and works even though the existing `.env`
    is owned by another user).
 2. **Pins `user:`** to the real owner of `/share/Container/family-calendar/data`.
-3. **Renders the YAML** to paste, and copies it to the clipboard.
+3. **Renders** the compose file — real qnet addresses and pinned MACs filled in
+   from `.deploy.env` — and ships it to the NAS.
+4. **Builds and starts** it there with `docker compose up -d --build`, then
+   force-recreates the backend so it re-reads the bind-mounted source and `.env`.
+5. **Verifies over the LAN** and checks the certificate.
 
-Then: *Container Station → Applications → family-calendar → Recreate*, select all,
-paste, Recreate. It builds the image on the NAS. Verify with `./deploy check`.
+The compose file is **secret-free**: it uses
+`env_file: /share/Container/family-calendar/.env`, so nothing sensitive is in the
+YAML. Every var the backend reads has a code default, so only `TZ` — which the OS
+uses, not the app — stays in the file. Re-run `./deploy` whenever a secret changes;
+the backend is recreated, which is what makes `env_file` take effect.
 
-The pasted YAML is **secret-free**: `docker-compose.nas.yml` uses
-`env_file: /share/Container/family-calendar/.env`, so nothing sensitive lands in
-Container Station's stored config (its Inspect view shows the YAML in plaintext).
-Every var the backend reads has a code default, so only `TZ` — which the OS uses,
-not the app — stays in the file. Re-run `./deploy nas` whenever a secret changes,
-then Recreate.
-
-`docker-compose.nas.yml` is **one application with two services**: the calendar
+`docker-compose.nas.yml` is **one compose project with two services**: the calendar
 backend on `10.0.0.2`, and a Caddy reverse proxy (`family-cal-proxy`) on
 `10.0.0.3` that gives the home app a real HTTPS certificate — both on the
 external `qnet` bridge, so the Inky Frame can reach the backend reliably and
-Caddy's `:443` can't collide with the QTS web UI. One Recreate deploys both. The
+Caddy's `:443` can't collide with the QTS web UI. One `./deploy` covers both. The
 proxy's own `Dockerfile` / `Caddyfile` / `.env` live outside the synced tree and
 are shipped by `./deploy proxy`; see **[HOME_HTTPS_SETUP.md](HOME_HTTPS_SETUP.md)**.
 
-It keeps the obsolete `version: "3"` key — harmless on Compose v2, but Compose v1
-needs it to parse the v3 schema at all, and Container Station's vintage is unknown.
+Its `name: family-calendar` pins the compose project, and that name is
+load-bearing: compose derives `family-calendar_caddy_data` from it, and that volume
+holds the Let's Encrypt certificate and ACME account key.
 
 ### Getting the source onto the NAS
 
@@ -166,7 +168,7 @@ QSync is **not** used — it half-delivered source files (see RUNBOOK.md). Every
 shipped explicitly over ssh:
 
 ```bash
-./deploy push-src     # backend/ + frontend/ → NAS (a true mirror; then Restart)
+./deploy ship     # backend/ + frontend/ → NAS (a true mirror; then Restart)
 ./deploy sync-check   # is the NAS running the same source as this Mac?
 ./deploy data-pull    # NAS data/ → this Mac, on demand (one direction only)
 ```

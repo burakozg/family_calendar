@@ -1,20 +1,55 @@
-# QNAP / Container Station — ONE application, two services.
+# The NAS deployment — one compose project, two services.
 #
-# Do not paste this file by hand — run `./deploy nas` on the Mac. It rewrites
-# `user:` to the real owner of the data dir, and the two placeholder qnet
-# addresses below to your real ones (NAS_HOST / PROXY_IP in .deploy.env — see
-# deploy.env.example), then copies the result to your clipboard. (Ship the
-# proxy's Dockerfile/Caddyfile/.env first with `./deploy proxy`; they live
-# outside this repo's synced tree on the NAS.)
+# Shipped to the NAS by `./deploy` and brought up over ssh with
+# `docker compose up -d --build`. It is NOT a Container Station "Application"
+# any more, and that is deliberate; see "Why this stopped being an Application"
+# below.
 #
-# `version` is obsolete for Compose v2 (harmless warning) but Compose v1 needs it
-# to parse the v3 schema at all, and Container Station's vintage is unknown.
+# Do not paste this file by hand. `./deploy apply` renders it — rewriting
+# `user:` to the real owner of the data dir, and the qnet address/MAC
+# placeholders to your real ones (APP_LAN_IP / PROXY_LAN_IP in .deploy.env, see
+# deploy.env.example) — and ships the rendered copy. Real addresses never land
+# in this tracked file.
 #
-# NOTE: no mem_limit / pids_limit anywhere here. Container Station rejects resource
-# limits in the YAML ("Incompatible Docker Compose YAML File — Resources: Configure
-# resource limitations in Advanced Settings") and wants them set in its own panel.
-# The Mac compose file still caps them the normal way.
-version: "3"
+# `name:` pins the compose project instead of letting it default to the
+# directory name, and the value is load-bearing: compose derives volume names
+# from it, so `caddy_data` is `family-calendar_caddy_data`. That volume holds
+# the Let's Encrypt certificate and the ACME account key. Change this name and
+# compose silently creates EMPTY volumes, Caddy re-issues, and Let's Encrypt
+# allows only 5 duplicate certificates per hostname per week. It is also the
+# project name the containers already carried under Container Station, which is
+# why `up -d` adopted them in place rather than colliding with their
+# container_name.
+#
+# Both services BUILD here, on the NAS, rather than shipping an image: this Mac
+# is arm64 and the QNAP is x86_64, and cross-building plus shipping ~200MB over
+# ssh every deploy is slower and more fragile than letting the NAS build
+# natively from the source `./deploy ship` syncs. That is why `apply` passes
+# --build. (Ship the proxy's Dockerfile/Caddyfile/.env first with
+# `./deploy proxy`; they live outside this repo's synced tree on the NAS.)
+#
+# ── Why this stopped being a Container Station Application ────────────────────
+#
+# A Container Station Application is a plain compose project too — the same
+# docker compose v2.29.1 — differing only in that Container Station keeps its
+# OWN copy of the YAML under .qpkg/container-station/data/application/<name>/,
+# and "Recreate" re-reads that copy rather than this file. Every change here
+# needed a manual re-paste, and forgetting was silent.
+#
+# Nothing was gained for that. Surviving a NAS reboot comes from
+# `restart: unless-stopped` below, which the docker daemon honours whoever
+# started the container — not from being an Application. And Container Station
+# rejects resource limits in pasted YAML ("Incompatible Docker Compose YAML
+# File — Resources: Configure resource limitations in Advanced Settings"),
+# wanting them in its own panel, so they could not be version-controlled here.
+# They can be now; the Mac compose file caps them the normal way and this one
+# is free to.
+#
+# Container Station still owns the qnet macvlan network both services join as
+# `external: true`, and still lists these containers under Containers. Only the
+# Application wrapper is gone.
+
+name: family-calendar
 
 services:
   # ── The calendar backend ────────────────────────────────────────────────────
@@ -24,7 +59,7 @@ services:
     container_name: family-calendar
     restart: unless-stopped
     # Hardening (S7): non-root, read-only rootfs — only /data is writable — and no
-    # privilege escalation. `./deploy nas` rewrites `user:` to the data dir's actual
+    # privilege escalation. `./deploy apply` rewrites `user:` to the data dir's actual
     # owner, so the container can write the one directory it's allowed to.
     user: "${APP_UID:-1000}:${APP_GID:-1000}"
     read_only: true
@@ -39,7 +74,7 @@ services:
     working_dir: /app
     # Secrets are read from the NAS-side .env at container start, NOT written into
     # this file: Container Station stores the YAML in plaintext and shows it in the
-    # Inspect view. `./deploy nas` pushes .env over ssh (file sync skips dotfiles).
+    # Inspect view. `./deploy apply` pushes .env over ssh (file sync skips dotfiles).
     # Every other var the backend reads has a code default, so TZ — which only the
     # OS uses — is all that's left here.
     env_file:
@@ -49,6 +84,16 @@ services:
     networks:
       qnet-static-eth1-dc7e3a:
         ipv4_address: APP_IP_PLACEHOLDER
+        # Pinned PER NETWORK (not on the service: a service-level `mac_address:`
+        # applies to only one interface, and picks the wrong one on a service
+        # with two). Docker randomises the MAC on every `create` for macvlan —
+        # unlike bridge networks, where it derives it from the IP — and the
+        # router keeps answering for the old one afterwards. The container comes
+        # back healthy, correctly routed, able to reach the internet, and
+        # unreachable inbound for minutes; the healthcheck cannot see it because
+        # it probes localhost from inside. `./deploy apply` fills this in from
+        # APP_LAN_IP, so the real address stays out of this tracked file.
+        mac_address: APP_MAC_PLACEHOLDER
 
   # ── HTTPS for the home app ──────────────────────────────────────────────────
   # Caddy terminates TLS so the relay PWA's "AI content" tab can iframe the home
@@ -80,6 +125,10 @@ services:
       # QTS web UI on the NAS host itself.
       qnet-static-eth1-dc7e3a:
         ipv4_address: PROXY_IP_PLACEHOLDER
+        # Same reasoning as the backend above. Worth pinning here especially:
+        # this is the address the DuckDNS name resolves to, so an unreachable
+        # window is an HTTPS outage for the PWA's embedded home tab.
+        mac_address: PROXY_MAC_PLACEHOLDER
 
 volumes:
   caddy_data:

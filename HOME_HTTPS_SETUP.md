@@ -44,9 +44,9 @@ internet, and the hostname is useless to anyone outside your network.
 
 Caddy fetches and **auto-renews** the Let's Encrypt certificate via DNS-01 and
 proxies to the backend container. It runs as the **`family-cal-proxy` service
-inside the single `family-calendar` Container Station application** (see
+inside the single `family-calendar` compose project** (see
 `docker-compose.nas.yml`), on its own static IP on the same `qnet` bridge — so
-`:443` never collides with the QTS web UI, and one Recreate deploys both services.
+`:443` never collides with the QTS web UI, and one `./deploy` covers both services.
 
 Its build context (`proxy/` in this repo → `/share/Container/family-calendar-proxy`
 on the NAS) holds a `Dockerfile` (stock Caddy has no DuckDNS DNS module, so it's
@@ -63,7 +63,7 @@ It refuses to run unless `DUCKDNS_DOMAIN` and `DUCKDNS_TOKEN` are in the repo's
 render and deploy the application YAML as usual:
 
 ```sh
-./deploy nas                # → clipboard → Container Station → Recreate
+./deploy apply                # ships the compose file and applies it over ssh
 ```
 
 No router port-forwarding. Nothing to renew by hand — Caddy re-issues the
@@ -72,8 +72,9 @@ certificate automatically before expiry (DNS-01 again, still no inbound).
 > **Rate limits.** Let's Encrypt allows only **5 duplicate certificates per
 > hostname per week**. The cert and ACME account key live in the `caddy_data`
 > volume; a **Restart** provably reuses them (the expiry doesn't move). If a
-> **Recreate** ever wipes that volume, Caddy re-issues and you can burn the
-> allowance. Check with `./deploy check` after any Recreate — it prints the issuer
+> deploy ever wipes that volume, Caddy re-issues and you can burn the
+> allowance. The volume name comes from the compose project name, so never rename
+> the project. Check with `./deploy check` after any deploy — it prints the issuer
 > and expiry, and an unchanged expiry means nothing was re-issued. Use
 > `--staging` while debugging DNS or router problems.
 
@@ -102,9 +103,9 @@ EMBED_ORIGIN=https://family-shopping-relay.fly.dev
 Push it to the NAS and restart the backend:
 
 ```sh
-./deploy nas        # pushes .env over ssh (file sync skips dotfiles)
+./deploy apply        # pushes .env over ssh (file sync skips dotfiles)
 ```
-then Container Station → family-calendar → **Restart**.
+`./deploy proxy` rebuilds and restarts it for you.
 
 ## Step 4 — Tell the relay where home is
 
