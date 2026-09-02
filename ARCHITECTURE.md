@@ -418,6 +418,32 @@ run `POST /mailsync/run` a second time and confirm still zero outbound emails
 for that UID. Regression coverage: the `test_echo_*` / loop-guard tests in
 `backend/tests/test_mailsync.py`.
 
+### Obsidian vault sync (`backend/vault_writer.py`, `backend/vault.py`)
+Optional background loop (`vault_sync_loop`, started from `main.py`'s
+`startup()` alongside `relay_client`/`mailsync`, gated on `VAULT_COUCHDB_URL`
+being set) that projects recipes and calendar data into a CouchDB database
+via the Self-hosted LiveSync document format — chunk docs (content-addressed,
+`h:t…`) plus entry docs keyed by lowercased vault path, the same reverse-
+engineered format `taster/backend/app/couchdb_client.py` established and
+every vault-writing project in this ecosystem carries a vendored copy of
+(`vault.py` here is one; see `~/.claude/skills/obsidian-vault-writer`).
+
+This is a **different** database from any "security"-side vault a project
+might also read/write — see `~/projects/homelab/README.md`'s "The vault
+split". `taster` is the only other writer here, and the two don't share any
+folder, so there's no owner-tag/frontmatter-prefix contract to follow, just
+whole-file ownership of `Recipes/` and `Calendar/`.
+
+Every cycle (`sync_all`, default every 120s via `VAULT_SYNC_POLL_SECONDS`)
+rebuilds each note whole from the current JSON on disk — `format_recipe` for
+every file in `RECIPES_DIR`, `format_events`/`format_birthdays` for
+`events.json` — and lets `LiveSyncVault.project()` decide whether anything
+actually changed (a GET + compare before any PUT), so an unchanged recipe or
+event costs a read, not a write. No storage-layer hook into `recipes.py` /
+`calendar_store.py` was needed: a full rebuild on a timer is simpler and
+harder to get subtly wrong than hooking every mutation call site, and at
+~70 recipes the whole-corpus reread is cheap.
+
 ### Static serving
 The `frontend/` directory is mounted at `/` with `html=True`, so the same
 server that hosts the API also serves `admin.html`, `mobile.html`, and

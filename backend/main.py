@@ -15,6 +15,8 @@ The backend is split into focused modules (see ARCHITECTURE.md):
   meals.py          weekly plan + two-step AI planner (routes)
   recipes.py        recipe CRUD + AI extraction/import pipelines (routes)
   mailsync.py       mailbox.org mail/calendar sync (MAILSYNC_DESIGN.md)
+  vault.py          Self-hosted LiveSync CouchDB client (vendored, write-only)
+  vault_writer.py   projects recipes/events into the hobby Obsidian vault
 
 main.py keeps: app setup + middleware (Host allowlist, body cap, X-Who), the
 unhandled-exception logger, settings/events routes, logs/display/SSE routes,
@@ -53,6 +55,7 @@ from display_cache import _cache_warned, _recurring_occurrences, build_display_c
 from fsatomic import _atomic_write_text
 from recipes import _host_is_public
 from relay_client import SHOP_RELAY_POLL_SECONDS, _relay_ready, _relay_sync_loop
+from vault_writer import VAULT_SYNC_POLL_SECONDS, configured_env as _vault_configured, vault_sync_loop
 from storage import (ALLOWED_ICONS, DATA, DEFAULTS, F_EVENTS, F_MEALS,
                      F_RELAY_APPLIED, F_SETTINGS, F_SHOPPING, PHOTOS_DIR,
                      RECIPE_PENDING_DIR, RECIPES_DIR, _ensure_ids, _new_id,
@@ -507,6 +510,9 @@ async def startup():
         # toggle every cycle, so enabling in the admin UI needs no restart.
         asyncio.create_task(mailsync.mailsync_loop())
         print(f"Mailsync loop started (every {mailsync.MAILSYNC_POLL_SECONDS}s)")
+    if _vault_configured():
+        asyncio.create_task(vault_sync_loop())
+        print(f"Vault sync loop started (every {VAULT_SYNC_POLL_SECONDS}s)")
 
 # ── Static files ──────────────────────────────────────────────────────────────
 # Recipe photos — mounted before the catch-all frontend mount below.

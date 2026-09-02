@@ -18,7 +18,7 @@ Everything runs on a home server (a QNAP NAS in this deployment) inside a single
 
 | Path | What it is |
 |------|-----------|
-| `backend/` | FastAPI app, split into focused modules (see ARCHITECTURE.md): JSON-file storage, SSE stream, display-cache builder, AI meal planner + recipe extraction/import, shopping-aisle tagging, activity log, cloud-relay sync, mailbox.org mail sync. |
+| `backend/` | FastAPI app, split into focused modules (see ARCHITECTURE.md): JSON-file storage, SSE stream, display-cache builder, AI meal planner + recipe extraction/import, shopping-aisle tagging, activity log, cloud-relay sync, mailbox.org mail sync, hobby-vault sync. |
 | `frontend/admin.html` | Full admin UI — manage members, events, birthdays, recurring items, meals, recipes. |
 | `frontend/mobile.html` | Phone-friendly UI for quick edits (incl. a Browse tab for the recipe library). |
 | `frontend/recipes.html` | Standalone recipe viewer — live filters (search, course, cuisine, time, rating) + detail. |
@@ -250,6 +250,29 @@ model).
 | GET | `/healthz` | Liveness probe (also used by the relay app's AI content tab to detect the home network) |
 | GET | `/export` | Download a zip of all JSON stores + recipes (restore: unzip into `data/`) |
 | GET | `/export/recipes` | Download a recipes-only zip (records + index + photos) |
+
+## Obsidian vault sync
+
+Optional (`VAULT_COUCHDB_URL` unset = the loop never starts, see
+`.env.example`). Projects recipes and calendar events into the **hobby**
+Obsidian vault — a different vault from any "security" one; see
+`~/projects/homelab/README.md`'s "Writing into the vault" and
+`~/.claude/skills/obsidian-vault-writer` for the shared contract this
+follows and `taster`, its only other writer.
+
+| | |
+|---|---|
+| Reads | `data/recipes/*.json`, `data/events.json` — never modified |
+| Writes | `Recipes/<id>.md` (one per recipe), `Calendar/Events.md`, `Calendar/Birthdays.md` |
+| Model | Whole-file ownership — nothing else writes these folders, so no owner tag or frontmatter prefix is needed |
+
+Rebuilt whole on every cycle (`backend/vault_writer.py::sync_all`, every
+`VAULT_SYNC_POLL_SECONDS`, default 120s), not appended to — a deleted or
+edited recipe has to be able to disappear or change in the vault, and only a
+full rebuild does that for free. Cheap when nothing changed: each note is a
+content-hash compare before any write, so a quiet cycle costs reads, not
+writes (`backend/vault.py`, vendored from the same LiveSync client every
+other vault-writing project in this ecosystem carries a copy of).
 
 ## Tests
 
