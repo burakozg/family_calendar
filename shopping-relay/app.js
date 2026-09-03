@@ -27,7 +27,10 @@ const LS_TOKEN='relay_token', LS_LIST='relay_list', LS_CAL='relay_cal', LS_WTOKE
 
 let token='', wtoken='', data=null, cal=null, recipes=null, cfg=null;
 let tab='events', dirty=false, saveTimer=null;
-let evPerson=null, evIcon='meeting', mealWeek='this', mealWhich='today';
+let evPerson=null, evIcon='meeting';
+// ISO date of the day whose recipe the detail card is showing. Null means
+// "not chosen yet" and resolves to today on the next render.
+let mealSel = null;
 let evShowLater=false;                         // "later than 3 months" section expanded?
 let homeLoaded=false;                          // AI tab iframe state
 let shopSelDays=new Set(), shopSelWeek=null;   // F1 shopping view state
@@ -284,47 +287,130 @@ async function deleteItem(idx){
 }
 
 // ── Meals tab ──────────────────────────────────────────────────
-function todayDow(){ const t=(cal&&cal.meals&&cal.meals.today)||''; if(!t) return -1; const d=new Date(t+'T00:00'); return (d.getDay()+6)%7; }
+function mondayOf(iso){
+  const d = new Date(iso + 'T00:00');
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));   // back to Monday
+  return d;
+}
+function isoOf(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// The fortnight as a flat list: 14 entries of {iso, dow, week, item}. `item` is
+// the plan row for that day (or null), and carries `id` — which is what lets the
+// detail card resolve any day against the mirrored recipe library.
+function mealDays(){
+  const m = (cal && cal.meals) || {};
+  const today = m.today || '';
+  if (!today) return [];
+  const mon = mondayOf(today);
+  const out = [];
+  [['this', m.plan], ['next', m.plan_next]].forEach(([week, plan], w) => {
+    for (let i = 0; i < 7; i++){
+      const d = new Date(mon); d.setDate(mon.getDate() + w*7 + i);
+      const row = (plan || [])[i];
+      out.push({ iso: isoOf(d), dow: i, week,
+                 item: (row && typeof row === 'object') ? row : null });
+    }
+  });
+  return out;
+}
+
 function renderMeals(){
-  const m = (cal && cal.meals) || {};
-  const plan = (mealWeek === 'next' ? m.plan_next : m.plan) || [];
-  $('mw-this').classList.toggle('active', mealWeek==='this');
-  $('mw-next').classList.toggle('active', mealWeek==='next');
-  const dow = mealWeek === 'this' ? todayDow() : -1;
-  $('meals-week').innerHTML = plan.length ? plan.map((d, i) => {
-    const name = (d && typeof d==='object' ? d.name : '') || '—';
-    return `<div class="mw-row${i===dow?' today':''}"><span class="mw-day">${MDAYS[i]||''}</span><span class="mw-name">${esc(name)}</span></div>`;
-  }).join('') : `<div class="empty">${mealWeek==='next'
-    ? 'Next week isn’t planned yet — create it in the home app'
-    : 'No dinners planned yet'}</div>`;
-  // Today/tomorrow detail only applies to the current week; hide just the
-  // detail card for next week (NOT an ancestor walk — #meal-detail is the
-  // card body, so parentElement chains land on the whole tab panel).
-  const detail = mealWeek === 'this';
-  $('meal-detail-toggle').style.display = detail ? '' : 'none';
-  $('meal-detail-card').style.display = detail ? '' : 'none';
-  if (detail) renderMealDetail();
-}
-function renderMealDetail(){
-  const m = (cal && cal.meals) || {};
-  $('seg-today').classList.toggle('active', mealWhich==='today');
-  $('seg-tomorrow').classList.toggle('active', mealWhich==='tomorrow');
-  const tm = mealWhich==='tomorrow' ? m.tomorrow_meal : m.today_meal;
-  const el = $('meal-detail');
-  if (!tm) { el.innerHTML = '<div class="empty">No dinner planned</div>'; return; }
-  const meta = [];
-  const tot = (tm.prep_time_min||0)+(tm.cook_time_min||0);
-  if (tot) meta.push(`${tot} min`);
-  if (tm.difficulty) meta.push(`difficulty ${tm.difficulty}/5`);
-  if (tm.servings) meta.push(`serves ${tm.servings}`);
-  let html = `<div class="md-title">${esc(tm.name||'')}</div>`;
-  if (meta.length) html += `<div class="md-meta">${esc(meta.join('  ·  '))}</div>`;
-  const ings = tm.ingredients||[], steps = tm.steps||[];
-  if (ings.length){ html += `<div class="md-h">Ingredients</div>` + ings.map(g=>`<div class="md-ing">${esc(g)}</div>`).join(''); }
-  if (steps.length){ html += `<div class="md-h">Method</div>` + steps.map((s,i)=>`<div class="md-step"><b>${i+1}.</b> ${esc(s)}</div>`).join(''); }
-  if (!ings.length && !steps.length && tm.notes) html += `<div class="md-step">${esc(tm.notes)}</div>`;
+  const days = mealDays();
+  const el = $('meals-week');
+  if (!days.length){ el.innerHTML = '<div class="empty">No dinners planned yet</div>'; $('meal-detail').innerHTML = ''; return; }
+  const today = (cal && cal.meals && cal.meals.today) || '';
+  // Default the selection to today, and re-home it if the fortnight has rolled
+  // past whatever was selected before.
+  if (!mealSel || !days.some(d => d.iso === mealSel)) mealSel = today;
+
+  let html = '';
+  ['this','next'].forEach(week => {
+    const group = days.filter(d => d.week === week);
+    if (!group.length) return;
+    html += `<div class="shop-cat">${week === 'this' ? 'This week' : 'Next week'}</div>`;
+    group.forEach(d => {
+      const name = (d.item && d.item.name) || '';
+      const cls = ['mw-row',
+                   d.iso === today ? 'today' : '',
+                   d.iso === mealSel ? 'sel' : '',
+                   name ? '' : 'empty-day'].filter(Boolean).join(' ');
+      const dd = d.iso.slice(8) + '/' + d.iso.slice(5,7);
+      html += `<div class="${cls}" data-date="${esc(d.iso)}">`
+            + `<span class="mw-day">${MDAYS[d.dow]}</span>`
+            + `<span class="mw-name">${esc(name || '—')}</span>`
+            + `<span class="mw-date" style="margin-left:auto">${esc(dd)}</span></div>`;
+    });
+  });
   el.innerHTML = html;
+  renderMealDetail();
 }
+
+// Shared with Browse: one renderer, so a recipe reads identically wherever it is
+// opened from. Tolerates both shapes the phone holds — mirrored records use
+// ingredient objects and {text} steps, while today_meal/tomorrow_meal arrive
+// pre-formatted as strings.
+function recipeDetailHtml(r, extra){
+  const meta = [];
+  const t = (r.prep_time_min||0)+(r.cook_time_min||0);
+  if (t) meta.push(`${t} min`);
+  if (r.difficulty) meta.push(`difficulty ${r.difficulty}/5`);
+  if (r.servings) meta.push(`serves ${r.servings}`);
+  if (r.cuisine) meta.push(r.cuisine);
+  let html = `<div class="md-title">${esc(r.name||'')}</div>`;
+  if (extra) html += `<div class="md-meta">${esc(extra)}</div>`;
+  if (meta.length) html += `<div class="md-meta">${esc(meta.join('  ·  '))}</div>`;
+  if (r.description) html += `<div class="md-step">${esc(r.description)}</div>`;
+  const ings = r.ingredients||[], steps = r.steps||[];
+  if (ings.length){
+    html += `<div class="md-h">Ingredients</div>` + ings.map(ig => {
+      if (typeof ig === 'string') return `<div class="md-ing">${esc(ig)}</div>`;
+      const amt = [ig.amount, ig.unit].filter(Boolean).join(' ');
+      const note = ig.notes ? ` (${ig.notes})` : '';
+      return `<div class="md-ing">${esc([amt, ig.item].filter(Boolean).join(' ') + note)}</div>`;
+    }).join('');
+  }
+  if (steps.length){
+    html += `<div class="md-h">Method</div>` + steps.map((st,i)=>
+      `<div class="md-step"><b>${i+1}.</b> ${esc(st && st.text ? st.text : st)}</div>`).join('');
+  }
+  if (r.notes) html += `<div class="md-h">Notes</div><div class="md-step">${esc(r.notes)}</div>`;
+  return html;
+}
+
+function renderMealDetail(){
+  const el = $('meal-detail');
+  const m = (cal && cal.meals) || {};
+  const day = mealDays().find(d => d.iso === mealSel);
+  if (!day){ el.innerHTML = '<div class="empty">No dinner planned</div>'; return; }
+
+  const when = day.iso === m.today ? 'Today'
+             : (new Date(day.iso+'T00:00') - new Date(m.today+'T00:00')) === 86400000 ? 'Tomorrow'
+             : `${MDAYS[day.dow]} ${day.iso.slice(8)}/${day.iso.slice(5,7)}`;
+  const item = day.item;
+  if (!item || !item.name){
+    el.innerHTML = `<div class="md-title">${esc(when)}</div><div class="empty">No dinner planned</div>`;
+    return;
+  }
+  // Prefer the mirrored library record — it is the only source that reaches all
+  // fourteen days. today_meal/tomorrow_meal remain a fallback for a planned dish
+  // that is not in the library (a one-off typed at home, say).
+  const rec = item.id && recipes && recipes.records && recipes.records[item.id];
+  const pre = day.iso === m.today ? m.today_meal
+            : (when === 'Tomorrow' ? m.tomorrow_meal : null);
+  const src = rec || pre;
+  if (!src){
+    el.innerHTML = `<div class="md-title">${esc(item.name)}</div>`
+                 + `<div class="md-meta">${esc(when)}</div>`
+                 + (item.notes ? `<div class="md-step">${esc(item.notes)}</div>` : '')
+                 + `<div class="empty">Full recipe not mirrored yet — it arrives with the next home sync.</div>`;
+    return;
+  }
+  el.innerHTML = recipeDetailHtml(src, when)
+               + (item.notes ? `<div class="md-h">Plan note</div><div class="md-step">${esc(item.notes)}</div>` : '');
+}
+
 // One toggle governs the whole Recipes tab — scan, upload and link import alike.
 // Off means "store it in the language it was written in", which is the default the
 // home server assumes when the flag is absent.
@@ -621,29 +707,7 @@ function openBrowseRecipe(id){
   const r = recipes && recipes.records && recipes.records[id];
   const el = $('br-detail');
   if (!r){ el.innerHTML = '<div class="empty">Recipe detail not mirrored yet.</div>'; return; }
-  const meta = [];
-  const t = (r.prep_time_min||0)+(r.cook_time_min||0);
-  if (t) meta.push(`${t} min`);
-  if (r.difficulty) meta.push(`difficulty ${r.difficulty}/5`);
-  if (r.servings) meta.push(`serves ${r.servings}`);
-  if (r.cuisine) meta.push(r.cuisine);
-  let html = `<div class="md-title">${esc(r.name||'')}</div>`;
-  if (meta.length) html += `<div class="md-meta">${esc(meta.join('  ·  '))}</div>`;
-  if (r.description) html += `<div class="md-step">${esc(r.description)}</div>`;
-  const ings = r.ingredients||[], steps = r.steps||[];
-  if (ings.length){
-    html += `<div class="md-h">Ingredients</div>` + ings.map(ig => {
-      const amt = [ig.amount, ig.unit].filter(Boolean).join(' ');
-      const note = ig.notes ? ` (${ig.notes})` : '';
-      return `<div class="md-ing">${esc([amt, ig.item].filter(Boolean).join(' ') + note)}</div>`;
-    }).join('');
-  }
-  if (steps.length){
-    html += `<div class="md-h">Method</div>` + steps.map((s,i)=>
-      `<div class="md-step"><b>${i+1}.</b> ${esc(s && s.text ? s.text : s)}</div>`).join('');
-  }
-  if (r.notes) html += `<div class="md-h">Notes</div><div class="md-step">${esc(r.notes)}</div>`;
-  el.innerHTML = html;
+  el.innerHTML = recipeDetailHtml(r);
   el.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
@@ -731,7 +795,9 @@ function showTab(name){
   const titles = {events:'Family Calendar', meals:'Meals', recipes:'Recipes', browse:'Browse', shop:'Shopping', ai:'AI content'};
   $('title').textContent = titles[name] || 'Family Calendar';
   if (name==='events'){ renderAddGate(); renderEvents(); fetchCalendar(); }
-  if (name==='meals'){ renderMeals(); fetchCalendar(); }
+  // Meals resolves each planned day against the mirrored library, so it needs
+  // the same data Browse does.
+  if (name==='meals'){ renderMeals(); fetchCalendar(); if (!recipes) fetchRecipes(); }
   if (name==='browse'){ populateBrowseFilters(); renderBrowse(); if (!recipes) fetchRecipes(); }
   if (name==='shop'){ renderShop(); fetchList(); }
   if (name==='ai'){ renderAITab(); }
@@ -757,10 +823,15 @@ function wireUI(){
   on('ri-submit', 'click', importRecipe);
   on('scan-file',   'change', e => scanPhoto(e.target));
   on('upload-file', 'change', e => scanPhoto(e.target));
-  on('mw-this', 'click', () => { mealWeek='this'; renderMeals(); });
-  on('mw-next', 'click', () => { mealWeek='next'; renderMeals(); });
-  on('seg-today',    'click', () => { mealWhich='today'; renderMealDetail(); });
-  on('seg-tomorrow', 'click', () => { mealWhich='tomorrow'; renderMealDetail(); });
+  // Delegated, because the fortnight list is re-rendered on every sync.
+  const mealsList = $('meals-week');
+  if (mealsList) mealsList.addEventListener('click', e => {
+    const row = e.target.closest('.mw-row');
+    if (!row || !row.dataset.date) return;
+    mealSel = row.dataset.date;
+    renderMeals();
+    $('meal-detail-card').scrollIntoView({behavior:'smooth', block:'start'});
+  });
   on('br-q', 'input', renderBrowse);
   on('br-course', 'change', renderBrowse);
   on('br-cuisine', 'change', renderBrowse);

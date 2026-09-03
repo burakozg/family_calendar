@@ -65,11 +65,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .later-toggle{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:11px;margin-top:2px;background:none;border:1px dashed var(--border);border-radius:var(--radius-sm);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;}
 .later-caret{color:var(--text3);font-size:11px;}
 .section-label{font-size:13px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 8px;}
-.week-toggle{display:flex;gap:5px;background:var(--surface2);padding:4px;border-radius:var(--radius-sm);margin-bottom:8px;}
-.wk-btn{flex:1;padding:11px 0;border:none;background:none;border-radius:var(--radius-sm);font-size:14px;font-weight:600;color:var(--text2);cursor:pointer;}
-.wk-btn.active{background:var(--surface);color:var(--accent);box-shadow:0 1px 3px rgba(0,0,0,0.08);}
-.mw-row{display:flex;align-items:baseline;gap:10px;padding:9px 6px;border-bottom:1px solid var(--border);}
+.mw-row{display:flex;align-items:baseline;gap:10px;padding:9px 6px;border-bottom:1px solid var(--border);cursor:pointer;}
 .mw-row.today{background:var(--accent-bg);}
+/* Selection is the stronger signal of the two: today is where you start, but the
+   selected row is what the card below is showing. */
+.mw-row.sel{box-shadow:inset 3px 0 0 var(--accent);}
+.mw-row.empty-day{cursor:default;}
+.mw-date{font-size:12px;color:var(--text3);flex-shrink:0;}
+.mw-row.sel .mw-name{color:var(--accent);}
 .mw-day{font-size:12px;font-weight:700;color:var(--text3);width:38px;flex-shrink:0;}
 .mw-row.today .mw-day{color:var(--accent);}
 .mw-name{font-size:15px;font-weight:600;}
@@ -176,17 +179,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="card"><div class="card-body"><div class="event-list" id="upcoming"></div></div></div>
   </div>
 
-  <!-- MEALS TAB -->
+  <!-- MEALS TAB
+       Both weeks in one scrolling list (Browse's pattern), every planned day
+       tappable, and the card below shows whichever day is selected — today by
+       default. Replaces the old This/Next week + Today/Tomorrow toggle pairs,
+       which could only ever reach two of the fourteen days. -->
   <div class="panel" id="panel-meals">
-    <div class="week-toggle">
-      <button class="wk-btn active" id="mw-this">This week</button>
-      <button class="wk-btn" id="mw-next">Next week</button>
-    </div>
     <div class="card"><div class="card-body" id="meals-week"></div></div>
-    <div class="week-toggle" id="meal-detail-toggle">
-      <button class="wk-btn active" id="seg-today">Today</button>
-      <button class="wk-btn" id="seg-tomorrow">Tomorrow</button>
-    </div>
     <div class="card" id="meal-detail-card"><div class="card-body" id="meal-detail"></div></div>
   </div>
 
