@@ -56,6 +56,32 @@ def run(coro):
     return asyncio.run(coro)
 
 
+#: The clock these tests run against. They use absolute dates, and
+#: `_process_message` drops an invitation that is entirely in the past — so on a
+#: real clock the suite rots: dates written as "next week" quietly become last
+#: week and the tests start failing one at a time, on a day nobody touched the
+#: code. Two had already expired by the time this was added, and the other two
+#: were days from it.
+TODAY = date(2026, 8, 31)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_today(monkeypatch):
+    """Pin `mailsync.date.today()` so the dates below stay in the future.
+
+    Patched on the module rather than the tests, because the past-filter is
+    incidental to what these tests are about (parsing, dedup, sequence, cancel).
+    The filter itself is covered explicitly by
+    `test_inbound_event_entirely_in_the_past_is_ignored`.
+    """
+    class _FixedDate(date):
+        @classmethod
+        def today(cls):
+            return TODAY
+
+    monkeypatch.setattr(mailsync, "date", _FixedDate)
+
+
 @pytest.fixture()
 def fresh():
     """Empty events store + fresh sync state, mailsync enabled with one invitee."""
@@ -184,6 +210,15 @@ def test_inbound_cancel_removes(fresh):
         method="CANCEL"), st))
     assert main.read_events()["events"] == []
     assert "evt-4@ext" not in st["inbound"]
+
+
+def test_inbound_event_entirely_in_the_past_is_ignored(fresh):
+    """The filter that made this module's dates expire — asserted directly, so
+    freezing the clock above does not quietly drop it from the suite."""
+    ics = make_ics("evt-past@ext", "Last week", TODAY - timedelta(days=11))
+    st = mailsync._read_state()
+    run(mailsync._process_message(imip_email(ics), st))
+    assert main.read_events()["events"] == []
 
 
 def test_inbound_own_organizer_skipped(fresh):
