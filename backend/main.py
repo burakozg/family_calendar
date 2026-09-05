@@ -26,6 +26,7 @@ Run:  uvicorn main:app --host 0.0.0.0 --port 8000
 Deps: pip install -r requirements.txt
 """
 import asyncio
+import contextlib
 import ipaddress
 import io
 import json
@@ -460,7 +461,16 @@ async def export_recipes():
     return resp
 
 async def _backup_loop():
-    """Hourly tick; makes at most one backup per day. Failures log, never crash."""
+    """Hourly tick; makes at most one backup per day. Failures log, never crash.
+
+    Sleeps before the first tick rather than after. Backing up the instant the
+    process starts put disk work on the startup path of every run — including
+    all 302 tests, each of which starts the app through TestClient — and
+    `asyncio.to_thread` work cannot be cancelled, so shutdown then waited on a
+    thread it had no way to stop. Nothing is lost by waiting: the once-a-day
+    rule lives in make_backup, so a delayed first tick still backs up today.
+    """
+    await asyncio.sleep(BACKUP_FIRST_TICK_SECONDS)
     while True:
         try:
             async with _write_lock:   # consistent cross-file snapshot; zipping is sub-second
@@ -491,6 +501,10 @@ async def mailsync_run():
 #: `asyncio.create_task` also risks the task being garbage-collected mid-flight,
 #: since the loop keeps only a weak reference to it.
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+#: How long the backup loop waits before its first tick. Keeps disk work off the
+#: startup path; the once-a-day rule in make_backup means nothing is skipped.
+BACKUP_FIRST_TICK_SECONDS = 60
 
 
 def _spawn(coro) -> asyncio.Task:
@@ -544,7 +558,15 @@ async def shutdown():
     for task in _BACKGROUND_TASKS:
         task.cancel()
     if _BACKGROUND_TASKS:
-        await asyncio.gather(*_BACKGROUND_TASKS, return_exceptions=True)
+        # Bounded, because cancellation is a request, not a guarantee: a loop
+        # sitting in `asyncio.to_thread` keeps its thread until that call
+        # returns, and an unbounded gather would wait for it. Five seconds is
+        # long enough for a loop parked on a sleep to unwind and short enough
+        # that shutting down never appears to hang.
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(
+                asyncio.gather(*_BACKGROUND_TASKS, return_exceptions=True), timeout=5
+            )
     _BACKGROUND_TASKS.clear()
 
 # ── Static files ──────────────────────────────────────────────────────────────
