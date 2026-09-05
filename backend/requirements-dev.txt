@@ -1,2 +1,6 @@
 # Test dependencies (on top of requirements.txt). Run: ./run-tests.sh
 pytest==9.1.1
+# A hang here is not hypothetical: the suite intermittently wedges instead of
+# failing, which is unreadable in CI and wedges the status collector. With a
+# timeout the hang becomes a failure that names the test.
+pytest-timeout==2.4.0

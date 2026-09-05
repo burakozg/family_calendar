@@ -487,6 +487,19 @@ async def mailsync_run():
     return mailsync.status()
 
 # ── Startup ───────────────────────────────────────────────────────────────────
+#: Live background loops, so shutdown can stop what startup began. A bare
+#: `asyncio.create_task` also risks the task being garbage-collected mid-flight,
+#: since the loop keeps only a weak reference to it.
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
+
+
 @app.on_event("startup")
 async def startup():
     # Recipe index schema bump (F3): rebuild once when the rows predate the new
@@ -501,18 +514,38 @@ async def startup():
     log_event("system", "server.start", "Backend started",
               detail={"models": ai.selected_models(), "relay": _relay_ready(),
                       "relay_poll_s": SHOP_RELAY_POLL_SECONDS})
-    asyncio.create_task(_backup_loop())
+    _spawn(_backup_loop())
     if _relay_ready():
-        asyncio.create_task(_relay_sync_loop())
+        _spawn(_relay_sync_loop())
         print(f"Relay sync loop started (every {SHOP_RELAY_POLL_SECONDS}s)")
     if mailsync.configured_env():
         # Started even when the settings toggle is off — the loop checks the
         # toggle every cycle, so enabling in the admin UI needs no restart.
-        asyncio.create_task(mailsync.mailsync_loop())
+        _spawn(mailsync.mailsync_loop())
         print(f"Mailsync loop started (every {mailsync.MAILSYNC_POLL_SECONDS}s)")
     if _vault_configured():
-        asyncio.create_task(vault_sync_loop())
+        _spawn(vault_sync_loop())
         print(f"Vault sync loop started (every {VAULT_SYNC_POLL_SECONDS}s)")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Stop the loops startup began.
+
+    Without this they are never cancelled: each is `while True` around a long
+    sleep, so the event loop waits on them and shutdown never completes. In a
+    container that means SIGTERM is ignored and Docker SIGKILLs it after the
+    grace period — a backup or a vault sync can be cut mid-write. In the tests
+    it means `TestClient.__exit__` blocks in `thread.join()` forever, which is
+    the intermittent hang that made the suite unrunnable.
+
+    Cancelled rather than awaited, because none of these loops ever return.
+    """
+    for task in _BACKGROUND_TASKS:
+        task.cancel()
+    if _BACKGROUND_TASKS:
+        await asyncio.gather(*_BACKGROUND_TASKS, return_exceptions=True)
+    _BACKGROUND_TASKS.clear()
 
 # ── Static files ──────────────────────────────────────────────────────────────
 # Recipe photos — mounted before the catch-all frontend mount below.
