@@ -18,6 +18,7 @@ The backend is split into focused modules (see ARCHITECTURE.md):
   vault.py          Self-hosted LiveSync CouchDB client (vendored, write-only)
   vault_writer.py   projects recipes/events into the hobby Obsidian vault
   willys.py         Willys price lookup (read-only, anonymous) for list costing
+  willys_cart.py    Willys cart push (signed in, write) — separate on purpose
 
 main.py keeps: app setup + middleware (Host allowlist, body cap, X-Who), the
 unhandled-exception logger, settings/events routes, logs/display/SSE routes,

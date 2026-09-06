@@ -3154,6 +3154,10 @@ async function shopPrice() {
           <b>Not included (${un.length}):</b>
           ${un.map(u => `<div style="color:var(--text2);margin-top:3px;">${shopEsc(u.item)} <span style="color:var(--text3);">— ${shopEsc(u.why)}</span></div>`).join('')}
         </div>` : ''}
+        <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="save-btn" onclick="shopCart(this)" style="width:auto;padding:8px 14px;">🛒 Add these to my Willys cart</button>
+          <span id="shop-cart-status" style="font-size:13px;color:var(--text2);"></span>
+        </div>
         <div style="margin-top:12px;font-size:13px;">
           ${rows.map(r => `<div style="display:flex;gap:10px;padding:5px 0;border-top:1px solid var(--border);">
             <span style="flex:1.3;">${shopEsc(r.product)}${r.volume ? ' <span style="color:var(--text3);">· ' + shopEsc(r.volume) + '</span>' : ''}
@@ -3165,6 +3169,31 @@ async function shopPrice() {
       </div>`;
   } catch (e) {
     st.textContent = 'Could not price the list'; st.style.color = 'var(--danger)';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Push the basket shown above into the real Willys cart (backend/willys_cart.py).
+// Confirmed twice on purpose: this is the one control in the app that changes
+// something outside it, and the server refuses a request without {confirm:true}
+// so a stray POST cannot fill a trolley either.
+async function shopCart(btn) {
+  const st = document.getElementById('shop-cart-status');
+  const wk = weekKey(shopWeekStart);
+  if (!confirm('Add this basket to your Willys cart?\n\nYou still review and check out on willys.se — nothing is ordered.')) return;
+  btn.disabled = true; st.textContent = 'Adding…'; st.style.color = 'var(--text2)';
+  try {
+    const r = await fetch(`${API}/shopping/${wk}/cart`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({confirm: true}),
+    });
+    const d = await r.json();
+    if (!r.ok) { st.textContent = d.detail || 'Could not add to cart'; st.style.color = 'var(--danger)'; return; }
+    st.textContent = `Added ${d.added} product${d.added === 1 ? '' : 's'} — cart now ${d.total}`;
+    st.style.color = 'var(--success)';
+  } catch (e) {
+    st.textContent = 'Could not reach the backend'; st.style.color = 'var(--danger)';
   } finally {
     btn.disabled = false;
   }

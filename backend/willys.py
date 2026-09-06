@@ -51,6 +51,7 @@ import math
 import re
 import time
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import httpx
 
@@ -97,6 +98,16 @@ class Product:
     compare_unit: str             # 'kg' | 'l' | 'st' | ''
     display_volume: str           # '500g', 'ca: 180g', '1,5l', ''
     out_of_stock: bool
+    basket_type: str = "ST"       # 'ST' (bought by the piece) | 'KG' (by weight)
+
+    @property
+    def pick_unit(self) -> str:
+        """What the cart calls this product's unit: 'pieces' or 'kilogram'.
+
+        The storefront's own rule, and not a synonym for how the price is quoted:
+        a banana is priced per kilo but bought by the piece, so it is ST/pieces.
+        """
+        return "kilogram" if self.basket_type.upper() == "KG" else "pieces"
 
     @property
     def pack_grams(self) -> float | None:
@@ -175,6 +186,7 @@ def _product(raw: dict) -> Product:
         compare_unit   = str(raw.get("comparePriceUnit") or "").lower(),
         display_volume = str(raw.get("displayVolume") or ""),
         out_of_stock   = bool(raw.get("outOfStock")),
+        basket_type    = str(((raw.get("productBasketType") or {}).get("code")) or "ST"),
     )
 
 
@@ -533,66 +545,104 @@ def _sane(candidates: list[Product]) -> list[Product]:
 _TSP_ML = 5.0   # 1 tsp ~ 5 ml; parse_qty folds tbsp/cups into tsp already
 
 
-def cost_of(qty: dict, p: Product) -> tuple[float | None, str]:
-    """(kr this ingredient adds to the BASKET, how it was worked out).
+class Line(NamedTuple):
+    """What to buy, in the terms the cart itself uses."""
+    units: float          # how many, in `pick_unit` — a count of items, or kilos
+    pick_unit: str        # 'pieces' | 'kilogram'
+    kr: float | None      # what it adds to the basket
+    basis: str            # how that was worked out, for the reader
 
-    This is shopping cost, not consumption cost, and the difference is the whole
-    point: a recipe using 20 g of flour does not cost 13 öre, it costs one bag of
-    flour, because that is what you carry to the till. So a packaged good is
-    charged as whole packs — ceil(needed / pack size) — at its shelf price.
+
+def plan(qty: dict, p: Product) -> Line:
+    """Decide what to actually buy for this ingredient, and what it costs.
+
+    Price and cart line are the same decision, so they are made in one place: the
+    number of packs the estimate charges for is exactly the number the cart has to
+    add, and deriving them separately is how the two drift apart.
+
+    Shopping cost, not consumption cost, and the difference is the whole point: a
+    recipe using 20 g of flour does not cost 13 öre, it costs one bag of flour,
+    because that is what you carry to the till. Packaged goods are therefore
+    charged as whole packs — ceil(needed / pack size) — at the shelf price.
 
     Loose produce is the exception. Nobody sells a sealed pack of onions by the
-    unit, you take the three you need and they are weighed, so those are charged
-    for the quantity actually required, against the jämförpris.
+    unit; you take the three you need and they are weighed. Those are charged for
+    the quantity actually required, against the jämförpris.
 
     Falls back to a single pack whenever the quantity or the pack size is unknown,
-    which is the right way to be wrong here: you would still have to buy one.
+    which is the right way to be wrong: you would still have to buy one.
     """
     shelf = p.price
+    unit  = p.compare_unit
+    pu    = p.pick_unit
     fam   = (qty or {}).get("family") or ""
     lo    = (qty or {}).get("lo")
-    unit  = p.compare_unit
 
-    def one_pack(why: str) -> tuple[float | None, str]:
+    def one(why: str) -> Line:
+        # A weight-bought product has no "one pack"; half a kilo is the least
+        # misleading stand-in, and the basis says it was a guess.
+        units = 0.5 if pu == "kilogram" else 1.0
         if shelf is not None:
-            return shelf, f"1 pack ({why})"
-        return (None, why) if p.compare_price is None else (p.compare_price, f"1 pack ({why})")
+            return Line(units, pu, shelf if pu == "pieces" else units * shelf, f"1 pack ({why})")
+        if p.compare_price is None:
+            return Line(units, pu, None, why)
+        return Line(units, pu, units * p.compare_price, f"1 pack ({why})")
 
     if lo is None or not fam:
-        return one_pack("no quantity")
+        return one("no quantity")
 
     if fam == "spoon":                        # tsp -> ml, then treated as a volume
         lo, fam = lo * _TSP_ML, "volume"
 
-    # ── loose: pay for what you take ──────────────────────────────────────────
+    # ── sold by weight: ask for the weight ────────────────────────────────────
+    if pu == "kilogram" and p.compare_price is not None:
+        if fam in ("mass", "volume"):
+            kg = lo / 1000.0
+            return Line(kg, pu, kg * p.compare_price, f"{_g(lo)} @ {p.compare_price:g} kr/{unit or 'kg'}")
+        if fam == "count" and p.per_piece_grams:
+            kg = lo * p.per_piece_grams / 1000.0
+            return Line(kg, pu, kg * p.compare_price, f"{lo:g} × {p.per_piece_grams:g}g by weight")
+        return one("weight-sold, no usable quantity")
+
+    # ── loose but bought by the piece: pay for what you take ──────────────────
     if p.is_loose and p.compare_price is not None:
-        if fam in ("mass", "volume") and unit in ("kg", "l"):
-            return lo / 1000.0 * p.compare_price, f"loose · {_g(lo)} @ {p.compare_price:g} kr/{unit}"
         if fam == "count":
             g = p.per_piece_grams
             if g and unit in ("kg", "l"):
-                return lo * g / 1000.0 * p.compare_price, f"loose · {lo:g} × {g:g}g"
+                return Line(lo, pu, lo * g / 1000.0 * p.compare_price, f"loose · {lo:g} × {g:g}g")
             if unit == "st":
-                return lo * p.compare_price, f"loose · {lo:g} × {p.compare_price:g} kr/st"
+                return Line(lo, pu, lo * p.compare_price, f"loose · {lo:g} × {p.compare_price:g} kr/st")
+        if fam in ("mass", "volume") and unit in ("kg", "l"):
+            # Charged for the weight needed, but the cart still takes a count of
+            # items, so ask for as many as cover it.
+            g = p.per_piece_grams
+            n = max(math.ceil(lo / g - 1e-9), 1) if g else 1.0
+            return Line(n, pu, lo / 1000.0 * p.compare_price,
+                        f"loose · {_g(lo)} @ {p.compare_price:g} kr/{unit}")
 
     # ── packaged: whole packs only ────────────────────────────────────────────
     if fam == "count":
         pack = p.pack_count or (1.0 if unit == "st" else None)
         if pack is None:                      # counted, but sold by weight in a pack
-            return one_pack("count vs weight")
+            return one("count vs weight")
     else:
         pack = p.pack_grams                   # grams/ml in the sealed pack
     if not pack:
-        return one_pack("pack size unknown")
+        return one("pack size unknown")
     if shelf is None:
-        return one_pack("no shelf price")
+        return one("no shelf price")
 
-    packs = math.ceil(lo / pack - 1e-9)        # 1.0000001 packs is one pack
-    packs = max(packs, 1)
+    packs = max(math.ceil(lo / pack - 1e-9), 1)   # 1.0000001 packs is one pack
     need  = _g(lo) if fam != "count" else f"{lo:g}"
     size  = _g(pack) if fam != "count" else f"{pack:g}"
-    return packs * shelf, (f"{packs} × {size} pack" if packs > 1
-                           else f"1 pack of {size} (need {need})")
+    return Line(float(packs), pu, packs * shelf,
+                f"{packs} × {size} pack" if packs > 1 else f"1 pack of {size} (need {need})")
+
+
+def cost_of(qty: dict, p: Product) -> tuple[float | None, str]:
+    """(kr this ingredient adds to the basket, how it was worked out)."""
+    line = plan(qty, p)
+    return line.kr, line.basis
 
 
 def _g(v: float) -> str:
@@ -683,11 +733,15 @@ async def estimate(items: list[dict]) -> dict:
     total = 0.0
     for code, g in picked.items():
         p, qty = g["p"], g["qty"]
-        kr, basis = cost_of(qty, p)
+        line = plan(qty, p)
+        # `units`/`pickUnit` are exactly what the cart call needs, so a basket the
+        # user has reviewed on screen is pushed as-is rather than recomputed.
         row = {"items": g["names"], "item": ", ".join(g["names"]),
                "product": p.name, "code": code, "volume": p.display_volume,
                "comparePrice": p.compare_price, "compareUnit": p.compare_unit,
-               "kr": None if kr is None else round(kr, 2), "basis": basis}
+               "units": round(line.units, 3), "pickUnit": line.pick_unit,
+               "kr": None if line.kr is None else round(line.kr, 2), "basis": line.basis}
+        kr = line.kr
         if kr is None:
             unmatched.append({"item": row["item"], "term": "", "why": basis})
         else:

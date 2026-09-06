@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 import ai
 import relay_client
 import willys
+import willys_cart
 from activity_log import log_event
 from bus import broadcast
 from relay_client import _log_relay, _relay_headers
@@ -518,6 +519,40 @@ async def price_shopping(week_key: str):
     """
     items = _aggregate_for_pricing(_shopping_payload(week_key))
     return await willys.estimate(items)
+
+
+@router.post("/shopping/{week_key}/cart")
+async def push_shopping_cart(week_key: str, request: Request):
+    """Add this week's priced basket to the Willys cart (willys_cart.py).
+
+    Requires `{"confirm": true}` in the body. This is the one route in the app
+    that spends money's worth of someone else's state, and a stray POST — a
+    double-tapped button, a retried request — must not be able to fill a real
+    trolley. The price estimate is the review screen; this is the button under it.
+
+    Prices are recomputed here rather than taken from the client, so what is added
+    is what the server just costed, not whatever a stale page happens to hold.
+    """
+    body = await request.json() if await request.body() else {}
+    if not body.get("confirm"):
+        raise HTTPException(400, "Refusing to push without an explicit confirmation")
+    if not willys_cart.configured():
+        raise HTTPException(400, f"No Willys session imported — see {willys_cart.SESSION_FILE}")
+
+    est = await willys.estimate(_aggregate_for_pricing(_shopping_payload(week_key)))
+    if est.get("error"):
+        raise HTTPException(502, f"Could not price the list: {est['error']}")
+    try:
+        result = await willys_cart.push(est.get("rows") or [])
+    except willys_cart.CartUnavailable as e:
+        log_event("cloud", "willys.cart", "Willys cart push failed", level="error",
+                  detail={"week": week_key, "error": str(e)})
+        raise HTTPException(502, str(e)) from e
+
+    log_event("cloud", "willys.cart",
+              f"Added {result['added']} products to the Willys cart",
+              detail={"week": week_key, "total": result.get("total")})
+    return result
 
 
 @router.post("/shopping/{week_key}/publish")
