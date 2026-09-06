@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -116,10 +117,28 @@ class Product:
         more than `_MAX_PIECE_G`, and above it "one pack" is the better answer
         anyway, so the cap costs nothing and removes the whole failure mode.
         """
-        if not re.match(r"\s*ca\b", self.display_volume, re.I):
+        if not self.is_loose:
             return None
         g = _grams(self.display_volume)
         return g if g is not None and g <= _MAX_PIECE_G else None
+
+    @property
+    def is_loose(self) -> bool:
+        """Sold loose by weight rather than in a sealed pack.
+
+        Willys marks these with an approximate label ("ca: 180g") because what you
+        take off the shelf is whatever it weighs. It decides how the thing is
+        costed: loose produce is charged for the amount you actually need, a
+        packaged good for whole packs, because you cannot buy 300 g out of a 2 kg
+        bag of flour.
+        """
+        return bool(re.match(r"\s*ca\b", self.display_volume, re.I))
+
+    @property
+    def pack_count(self) -> float | None:
+        """How many pieces are in the pack, from labels like '24p' (a box of eggs)."""
+        m = re.search(r"(\d+)\s*(?:p|pack|st)\b", self.display_volume, re.I)
+        return float(m.group(1)) if m else None
 
 
 def _kr(s) -> float | None:
@@ -407,7 +426,7 @@ _NOT_FOOD = (
 
 
 def pick(term: str, products: list[Product], *, want_count: bool = False,
-         strict: bool = False) -> Product | None:
+         strict: bool = False, qty: dict | None = None) -> Product | None:
     """The product a sensible shopper would put in the basket for `term`.
 
     Cheapest by jämförpris, but only after two filters, because cheapest-alone is
@@ -457,6 +476,17 @@ def pick(term: str, products: list[Product], *, want_count: bool = False,
     if want_count:
         per_piece = [p for p in candidates if p.per_piece_grams or p.compare_unit == "st"]
         candidates = per_piece or candidates
+
+    # Choose by what the BASKET actually costs, not by unit price. Cheapest per
+    # kilo is a bulk rule and buys a 5 kg sack of flour to satisfy 300 g; cheapest
+    # to-satisfy-this-need buys the smallest bag that covers it — and still buys
+    # the sack once the recipe needs 3 kg, because then it genuinely is cheaper.
+    if qty is not None:
+        def basket_cost(p: Product) -> tuple[float, float]:
+            kr, _ = cost_of(qty, p)
+            # Tie-break on unit price so equal-cost options prefer better value.
+            return (kr if kr is not None else float("inf"), p.compare_price or float("inf"))
+        return min(candidates, key=basket_cost)
     return min(candidates, key=lambda p: p.compare_price)
 
 
@@ -504,72 +534,103 @@ _TSP_ML = 5.0   # 1 tsp ~ 5 ml; parse_qty folds tbsp/cups into tsp already
 
 
 def cost_of(qty: dict, p: Product) -> tuple[float | None, str]:
-    """(kr for this ingredient's quantity, how it was worked out).
+    """(kr this ingredient adds to the BASKET, how it was worked out).
 
-    Costs against the jämförpris so pack size is irrelevant. Returns (None, why)
-    when the quantity and the price unit can't be reconciled — the caller reports
-    that as unpriced rather than inventing a number.
+    This is shopping cost, not consumption cost, and the difference is the whole
+    point: a recipe using 20 g of flour does not cost 13 öre, it costs one bag of
+    flour, because that is what you carry to the till. So a packaged good is
+    charged as whole packs — ceil(needed / pack size) — at its shelf price.
+
+    Loose produce is the exception. Nobody sells a sealed pack of onions by the
+    unit, you take the three you need and they are weighed, so those are charged
+    for the quantity actually required, against the jämförpris.
+
+    Falls back to a single pack whenever the quantity or the pack size is unknown,
+    which is the right way to be wrong here: you would still have to buy one.
     """
-    if p.compare_price is None:
-        return None, "no compare price"
+    shelf = p.price
+    fam   = (qty or {}).get("family") or ""
+    lo    = (qty or {}).get("lo")
+    unit  = p.compare_unit
 
-    fam  = (qty or {}).get("family") or ""
-    lo   = (qty or {}).get("lo")
-    unit = p.compare_unit
+    def one_pack(why: str) -> tuple[float | None, str]:
+        if shelf is not None:
+            return shelf, f"1 pack ({why})"
+        return (None, why) if p.compare_price is None else (p.compare_price, f"1 pack ({why})")
 
     if lo is None or not fam:
-        # No usable quantity ("a pinch", "to taste", blank): one pack is the only
-        # honest answer, and it overstates. Flagged so the UI can say so.
-        return (p.price, "one pack (no quantity)") if p.price is not None else (None, "no quantity")
+        return one_pack("no quantity")
 
-    if fam == "spoon":                        # tsp -> ml, then as a volume
+    if fam == "spoon":                        # tsp -> ml, then treated as a volume
         lo, fam = lo * _TSP_ML, "volume"
 
-    if fam == "mass":
-        if unit == "kg":
-            return lo / 1000.0 * p.compare_price, "kr/kg × g"
-        if unit == "l":                       # density ~1 for the liquids we cook with
-            return lo / 1000.0 * p.compare_price, "kr/l × g (density ~1)"
-    elif fam == "volume":
-        if unit == "l":
-            return lo / 1000.0 * p.compare_price, "kr/l × ml"
-        if unit == "kg":
-            return lo / 1000.0 * p.compare_price, "kr/kg × ml (density ~1)"
-    elif fam == "count":
-        if unit == "st":
-            return lo * p.compare_price, "kr/st × count"
-        # Counted, but sold by weight ("2 bananas"): only a "ca:" label states the
-        # weight of ONE, which is what a count needs. A bare pack size must not be
-        # multiplied by the count — see Product.per_piece_grams.
-        g = p.per_piece_grams
-        if g and unit in ("kg", "l"):
-            return lo * g / 1000.0 * p.compare_price, f"kr/{unit} × {g:g}g each"
-        return (p.price, "one pack (count vs weight)") if p.price is not None else (None, "count vs weight")
+    # ── loose: pay for what you take ──────────────────────────────────────────
+    if p.is_loose and p.compare_price is not None:
+        if fam in ("mass", "volume") and unit in ("kg", "l"):
+            return lo / 1000.0 * p.compare_price, f"loose · {_g(lo)} @ {p.compare_price:g} kr/{unit}"
+        if fam == "count":
+            g = p.per_piece_grams
+            if g and unit in ("kg", "l"):
+                return lo * g / 1000.0 * p.compare_price, f"loose · {lo:g} × {g:g}g"
+            if unit == "st":
+                return lo * p.compare_price, f"loose · {lo:g} × {p.compare_price:g} kr/st"
 
-    return None, f"{fam} vs kr/{unit or '?'}"
+    # ── packaged: whole packs only ────────────────────────────────────────────
+    if fam == "count":
+        pack = p.pack_count or (1.0 if unit == "st" else None)
+        if pack is None:                      # counted, but sold by weight in a pack
+            return one_pack("count vs weight")
+    else:
+        pack = p.pack_grams                   # grams/ml in the sealed pack
+    if not pack:
+        return one_pack("pack size unknown")
+    if shelf is None:
+        return one_pack("no shelf price")
+
+    packs = math.ceil(lo / pack - 1e-9)        # 1.0000001 packs is one pack
+    packs = max(packs, 1)
+    need  = _g(lo) if fam != "count" else f"{lo:g}"
+    size  = _g(pack) if fam != "count" else f"{pack:g}"
+    return packs * shelf, (f"{packs} × {size} pack" if packs > 1
+                           else f"1 pack of {size} (need {need})")
+
+
+def _g(v: float) -> str:
+    """A quantity in grams/ml rendered the way a label would write it."""
+    return f"{v / 1000:g}kg" if v >= 1000 else f"{v:g}g"
 
 
 # ── the estimate ──────────────────────────────────────────────────────────────
 
 async def estimate(items: list[dict]) -> dict:
-    """Price a shopping list at Willys.
+    """Price a shopping list at Willys, as a basket you could actually buy.
 
     `items` is chain-agnostic: [{"item": "ground beef", "qty": {...}}, ...] with
     `qty` as produced by shopping.parse_qty (or absent). Returns
 
-        {"chain", "total", "priced", "rows": [...], "unmatched": [...], "error"}
+        {"chain", "total", "priced", "items", "rows": [...], "unmatched", "error"}
 
-    `total` covers only the rows that could be priced — `unmatched` says what it
-    excludes, so the number is never quietly wrong. A store-side failure returns
-    the same shape with `error` set rather than raising: an estimate is a nicety,
-    and must not be able to fail the request that asked for it.
+    A row is a PRODUCT, not an ingredient, and that distinction is what makes the
+    total right. "ince bulgur", "kalın bulgur" and "haşlanan bulgur" are three
+    lines on the recipe and one bag in the trolley; costing them separately bought
+    three bags. So ingredients are resolved to products first, their quantities
+    pooled per product, and each product costed once — which is also the more
+    useful thing to read, because it is the list you walk the aisles with.
+
+    `total` covers only what could be priced — `unmatched` says what it excludes,
+    so the number is never quietly wrong. A store-side failure returns the same
+    shape with `error` set rather than raising: an estimate is a nicety, and must
+    not be able to fail the request that asked for it.
     """
-    rows: list[dict] = []
     unmatched: list[dict] = []
-    total = 0.0
     considered = 0        # ingredients we actually tried to price (water excluded)
     cache = _cache_read()
     dirty = False
+    picked: dict[str, dict] = {}      # product code -> {product, names, qty}
+
+    def fail(err: str) -> dict:
+        return {"chain": "willys", "total": 0.0, "priced": 0, "items": considered,
+                "rows": [], "unmatched": unmatched, "error": err}
 
     async with httpx.AsyncClient(base_url=BASE, timeout=TIMEOUT_S,
                                  headers={"User-Agent": UA, "Accept": "application/json"}) as client:
@@ -588,32 +649,51 @@ async def estimate(items: list[dict]) -> dict:
                 products = await search(term, client=client, cache=cache)
             except WillysUnavailable as e:
                 log.warning("willys: %s", e)
-                return {"chain": "willys", "total": round(total, 2), "priced": len(rows),
-                        "items": considered, "rows": rows, "unmatched": unmatched,
-                        "error": str(e)}
+                if dirty:
+                    _cache_write(cache)
+                return fail(str(e))
             dirty = dirty or len(cache) != before
 
             qty = it.get("qty") or {}
             p = pick(term, products, want_count=(qty.get("family") == "count"),
-                     strict=not translated)
+                     strict=not translated, qty=qty)
             if p is None:
                 why = "no product found" if translated else f"no Swedish term for {name!r}"
                 unmatched.append({"item": name, "term": term, "why": why})
                 continue
 
-            kr, basis = cost_of(qty, p)
-            row = {"item": name, "term": term, "translated": translated,
-                   "product": p.name, "code": p.code, "volume": p.display_volume,
-                   "comparePrice": p.compare_price, "compareUnit": p.compare_unit,
-                   "kr": None if kr is None else round(kr, 2), "basis": basis}
-            if kr is None:
-                unmatched.append({"item": name, "term": term, "why": basis})
-            else:
-                total += kr
-            rows.append(row)
+            g = picked.get(p.code)
+            if g is None:
+                picked[p.code] = {"p": p, "names": [name], "qty": dict(qty)}
+                continue
+            g["names"].append(name)
+            # Pool the need so one pack can cover several lines. Only within one
+            # family — 300 g of bulgur plus "some bulgur" is still 300 g, and a
+            # quantity we could not read must not silently become zero.
+            cur = g["qty"]
+            if cur.get("family") and cur.get("family") == qty.get("family") \
+                    and cur.get("lo") is not None and qty.get("lo") is not None:
+                cur["lo"] += qty["lo"]
+                cur["hi"] = (cur.get("hi") or cur["lo"]) + (qty.get("hi") or qty["lo"])
 
     if dirty:
         _cache_write(cache)
+
+    rows: list[dict] = []
+    total = 0.0
+    for code, g in picked.items():
+        p, qty = g["p"], g["qty"]
+        kr, basis = cost_of(qty, p)
+        row = {"items": g["names"], "item": ", ".join(g["names"]),
+               "product": p.name, "code": code, "volume": p.display_volume,
+               "comparePrice": p.compare_price, "compareUnit": p.compare_unit,
+               "kr": None if kr is None else round(kr, 2), "basis": basis}
+        if kr is None:
+            unmatched.append({"item": row["item"], "term": "", "why": basis})
+        else:
+            total += kr
+        rows.append(row)
+
     return {"chain": "willys", "total": round(total, 2),
             "priced": sum(1 for r in rows if r["kr"] is not None), "items": considered,
             "rows": rows, "unmatched": unmatched, "error": ""}

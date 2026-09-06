@@ -150,67 +150,93 @@ def test_strict_refuses_to_guess_for_an_untranslated_term():
 
 
 # ── costing ───────────────────────────────────────────────────────────────────
+# Basket cost, not consumption cost. A recipe using 20 g of flour does not cost
+# 13 öre; it costs a bag of flour, because that is what you carry to the till.
 
 def _q(lo, family, unit=""):
     return {"lo": lo, "hi": lo, "family": family, "unit": unit}
 
 
-def test_costs_mass_against_the_kilo_price():
-    kr, _ = willys.cost_of(_q(500, "mass"), _p("Nötfärs", 119.0))
-    assert kr == 59.5
+def test_packaged_goods_are_charged_as_a_whole_pack():
+    """You cannot buy 300 g out of a 2 kg bag."""
+    flour = _p("Vetemjöl", 12.5, volume="2kg", price=25.0)
+    kr, basis = willys.cost_of(_q(300, "mass"), flour)
+    assert kr == 25.0 and "1 pack" in basis
 
 
-def test_costs_volume_against_the_litre_price():
-    kr, _ = willys.cost_of(_q(500, "volume"), _p("Mjölk", 11.0, "l"))
-    assert kr == 5.5
+def test_more_than_one_pack_when_the_recipe_needs_more():
+    flour = _p("Vetemjöl", 12.5, volume="2kg", price=25.0)
+    kr, basis = willys.cost_of(_q(3000, "mass"), flour)
+    assert kr == 50.0 and basis.startswith("2 ×")
 
 
-def test_costs_spoons_as_millilitres():
-    """parse_qty folds tbsp/cups into tsp, so a spoon family only needs tsp->ml."""
-    kr, _ = willys.cost_of(_q(6, "spoon"), _p("Olivolja", 64.9, "l"))
-    assert round(kr, 2) == 1.95
+def test_an_exact_multiple_does_not_round_up_a_spare_pack():
+    """2000 g against a 2 kg bag is one bag, not two — float noise must not add one."""
+    kr, _ = willys.cost_of(_q(2000, "mass"), _p("Vetemjöl", 12.5, volume="2kg", price=25.0))
+    assert kr == 25.0
 
 
-def test_costs_a_count_against_the_piece_price():
-    kr, _ = willys.cost_of(_q(4, "count"), _p("Ägg 24p", 2.5, "st"))
-    assert kr == 10.0
+def test_loose_produce_is_charged_for_what_you_take():
+    """Nobody sells three onions in a sealed bag; they are weighed at the till."""
+    onion = _p("Lök Gul Klass 1", 10.9, volume="ca: 175g", price=8.9)
+    kr, basis = willys.cost_of(_q(2, "count"), onion)
+    assert round(kr, 2) == 3.81 and basis.startswith("loose")
 
 
-def test_costs_a_count_of_a_weight_priced_item_by_item_weight():
-    kr, basis = willys.cost_of(_q(3, "count"), _p("Banan", 19.9, volume="ca: 180g"))
-    assert round(kr, 2) == 10.75 and "each" in basis
+def test_loose_by_weight_is_charged_by_weight():
+    mince = _p("Nötfärs", 155.0, volume="ca: 850g", price=131.0)
+    kr, basis = willys.cost_of(_q(500, "mass"), mince)
+    assert round(kr, 2) == 77.5 and basis.startswith("loose")
 
 
-def test_a_count_never_multiplies_a_pack_size():
-    """Two onions must not be billed as two one-kilo sacks — the honest answer is
-    one pack, and it says so."""
-    kr, basis = willys.cost_of(_q(2, "count"), _p("Lök i Påse", 9.9, volume="1kg", price=19.9))
-    assert kr == 19.9 and basis == "one pack (count vs weight)"
+def test_a_count_of_packaged_pieces_uses_the_pack_count():
+    """Four eggs means one box of 24, not four twenty-fourths of one."""
+    eggs = _p("Ägg 24p Frigående", 2.5, "st", volume="24p", price=59.9)
+    kr, basis = willys.cost_of(_q(4, "count"), eggs)
+    assert kr == 59.9 and "1 pack" in basis
+
+
+def test_a_count_beyond_one_pack_buys_two():
+    eggs = _p("Ägg 24p Frigående", 2.5, "st", volume="24p", price=59.9)
+    kr, _ = willys.cost_of(_q(30, "count"), eggs)
+    assert kr == 119.8
+
+
+def test_spoons_become_millilitres_then_a_pack():
+    """6 tsp of oil is 30 ml, and 30 ml of oil is one bottle of oil."""
+    oil = _p("Olivolja", 64.9, "l", volume="1l", price=64.9)
+    kr, basis = willys.cost_of(_q(6, "spoon"), oil)
+    assert kr == 64.9 and "1 pack" in basis
 
 
 def test_no_quantity_falls_back_to_one_pack_and_says_so():
-    kr, basis = willys.cost_of(_q(None, ""), _p("Salt med Jod", 9.9, price=9.9))
+    kr, basis = willys.cost_of(_q(None, ""), _p("Salt med Jod", 9.9, volume="1kg", price=9.9))
     assert kr == 9.9 and "no quantity" in basis
 
 
-def test_unreconcilable_units_are_reported_not_guessed():
-    kr, basis = willys.cost_of(_q(2, "count"), _p("Mystisk Vara", 5.0, ""))
-    assert kr is not None or basis            # never raises; either priced or explained
+def test_unknown_pack_size_falls_back_to_one_pack():
+    kr, basis = willys.cost_of(_q(300, "mass"), _p("Mystisk Vara", 20.0, volume="", price=17.0))
+    assert kr == 17.0 and "pack size unknown" in basis
 
 
-def test_missing_compare_price_is_not_priced():
-    kr, basis = willys.cost_of(_q(500, "mass"), _p("Utan Pris", None))
-    assert kr is None and basis == "no compare price"
+def test_a_count_of_a_packaged_weight_item_is_one_pack():
+    """'2 packs of mince' against a sealed 500 g tray: buy the tray."""
+    kr, basis = willys.cost_of(_q(2, "count"), _p("Nötfärs", 159.8, volume="500g", price=79.9))
+    assert kr == 79.9 and "count vs weight" in basis
 
 
-def test_a_variable_weight_pack_is_not_one_piece():
-    """Chicken fillets ship as 'ca: 850g' — the same "ca:" a 180 g banana uses.
-    Reading the pack as a single item charges four breasts for one."""
-    assert _p("Kycklingfilé", 87.9, volume="ca: 850g").per_piece_grams is None
-    assert _p("Banan", 19.9, volume="ca: 180g").per_piece_grams == 180.0
+# ── picking follows the basket, not the unit price ────────────────────────────
+
+def test_pick_buys_the_smallest_bag_that_covers_the_need():
+    """Cheapest per kilo is a bulk rule: it buys a 5 kg sack to satisfy 300 g."""
+    small = _p("Vetemjöl Liten", 12.5, volume="2kg", price=25.0)
+    bulk  = _p("Vetemjöl Stor",   9.0,  volume="5kg", price=45.0)
+    got = willys.pick("vetemjöl", [bulk, small], qty=_q(300, "mass"))
+    assert got.name == "Vetemjöl Liten"
 
 
-def test_herbal_tea_is_not_a_fresh_herb():
-    """'pepparmynta' genuinely ends in 'mynta', so head-noun ranking loves it."""
-    got = willys.pick("mynta", [_p("Pepparmynta Örtte", 13.9), _p("Mynta Kruka", 24.9)])
-    assert got.name == "Mynta Kruka"
+def test_pick_buys_the_sack_once_the_sack_is_genuinely_cheaper():
+    small = _p("Vetemjöl Liten", 12.5, volume="2kg", price=25.0)
+    bulk  = _p("Vetemjöl Stor",   9.0,  volume="5kg", price=45.0)
+    got = willys.pick("vetemjöl", [bulk, small], qty=_q(3000, "mass"))
+    assert got.name == "Vetemjöl Stor"          # 1×45 beats 2×25

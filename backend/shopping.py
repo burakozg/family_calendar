@@ -478,7 +478,13 @@ def _aggregate_for_pricing(payload: dict) -> list:
     and '2 packs' mince) keeps the mass and drops the odd one out rather than
     inventing a total.
     """
-    have = {h.lower() for h in (payload.get("have") or [])}
+    # Both lists mean "not going in the basket". `have` is the explicit
+    # already-at-home flag, but every tick in the phone and admin UIs writes to
+    # `bought` — those UIs say "tick items you've bought, or already have at
+    # home", and the relay has no `have` control at all. Honouring only `have`
+    # would keep pricing things the user has already crossed off.
+    have = {h.lower() for h in (payload.get("have") or [])} \
+         | {b.lower() for b in (payload.get("bought") or [])}
     rows: dict[str, dict] = {}
     for day in payload.get("days", []):
         for ing in day.get("ingredients", []):
