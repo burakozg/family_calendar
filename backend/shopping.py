@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 import ai
 import relay_client
+import willys
 from activity_log import log_event
 from bus import broadcast
 from relay_client import _log_relay, _relay_headers
@@ -39,6 +40,27 @@ _UNIT_TABLE = {
     "tsp": ("spoon", 1), "teaspoon": ("spoon", 1), "teaspoons": ("spoon", 1),
     "tbsp": ("spoon", 3), "tbs": ("spoon", 3), "tablespoon": ("spoon", 3),
     "tablespoons": ("spoon", 3), "cup": ("spoon", 48), "cups": ("spoon", 48),
+    # Turkish kitchen measures — a third of these recipes are written with them,
+    # and an unrecognised unit costs the whole ingredient its quantity: the price
+    # estimate then falls back to a WHOLE PACK of salt for a pinch of it.
+    # Conventional sizes: su bardağı (water glass) 200 ml, çay bardağı (tea glass)
+    # 100 ml, fincan (coffee cup) 80 ml; yemek kaşığı = tbsp, tatlı kaşığı =
+    # dessert spoon (2 tsp), çay kaşığı = tsp. Both the fully-accented spelling and
+    # the bare-ASCII one occur in the data, so both are keys.
+    "bardak": ("volume", 200),
+    "su bardağı": ("volume", 200), "su bardagi": ("volume", 200),
+    "çay bardağı": ("volume", 100), "cay bardagi": ("volume", 100),
+    "tea glass": ("volume", 100), "fincan": ("volume", 80),
+    "yemek kaşığı": ("spoon", 3), "yemek kasigi": ("spoon", 3), "yk": ("spoon", 3),
+    "kaşık": ("spoon", 3), "kasik": ("spoon", 3),
+    "tepeleme kaşık": ("spoon", 3), "tepeleme kasik": ("spoon", 3),
+    "tatlı kaşığı": ("spoon", 2), "tatli kasigi": ("spoon", 2),
+    "çay kaşığı": ("spoon", 1), "cay kasigi": ("spoon", 1), "çay kasigi": ("spoon", 1),
+    # Swedish measures (msk/tsk/krm), since the shop and half the household are here
+    "msk": ("spoon", 3), "tsk": ("spoon", 1), "krm": ("spoon", 0.2),
+    # A pinch is about an eighth of a teaspoon. Approximate, but vastly closer than
+    # leaving it unparsed and billing a full jar of saffron.
+    "pinch": ("spoon", 0.125), "tutam": ("spoon", 0.125), "çimdik": ("spoon", 0.125),
 }
 
 # size/count words: not convertible, but summable as a count when the SAME word
@@ -48,9 +70,18 @@ _COUNT_WORDS = {
     "clove": "clove", "cloves": "clove", "piece": "piece", "pieces": "piece",
     "slice": "slice", "slices": "slice", "can": "can", "cans": "can",
     "pack": "pack", "packs": "pack", "packet": "pack", "packets": "pack",
+    "package": "pack", "packages": "pack",
     "bunch": "bunch", "bunches": "bunch", "head": "head", "heads": "head",
     "stalk": "stalk", "stalks": "stalk", "sprig": "sprig", "sprigs": "sprig",
     "handful": "handful", "handfuls": "handful",
+    # Turkish counters, mapped onto the same canonical tokens so a recipe written
+    # in Turkish sums with one written in English.
+    "adet": "", "tane": "",                      # bare count, like a plain number
+    "paket": "pack", "diş": "clove", "dis": "clove",
+    "demet": "bunch", "dal": "sprig", "dilim": "slice",
+    "avuç": "handful", "avuc": "handful",
+    "büyük": "large", "buyuk": "large", "küçük": "small", "kucuk": "small",
+    "orta": "medium", "orta boy": "medium",
 }
 
 _NUM = r"\d+(?:[.,]\d+)?"
@@ -434,6 +465,53 @@ async def delete_shopping_extra(week_key: str, request: Request):
     await publish_shopping(week_key)
     await broadcast("update", {"section": "shopping"})
     return {"ok": True}
+
+
+def _aggregate_for_pricing(payload: dict) -> list:
+    """One row per distinct ingredient for the whole week, quantities summed.
+
+    The clients sum per-day quantities themselves for display (see parse_qty), but
+    a price estimate has to do it server-side: buying 200 g of mince on Tuesday and
+    300 g on Friday is one 500 g purchase, and pricing the days separately would
+    round a pack in twice. Items already marked 'have at home' are excluded — you
+    aren't buying those. Quantities only sum within one family; a mix (400 g mince
+    and '2 packs' mince) keeps the mass and drops the odd one out rather than
+    inventing a total.
+    """
+    have = {h.lower() for h in (payload.get("have") or [])}
+    rows: dict[str, dict] = {}
+    for day in payload.get("days", []):
+        for ing in day.get("ingredients", []):
+            name = (ing.get("item") or "").strip()
+            if not name or name.lower() in have:
+                continue
+            qty = ing.get("qty") or {}
+            row = rows.get(name.lower())
+            if row is None:                    # first sighting seeds the quantity;
+                rows[name.lower()] = {"item": name, "qty": dict(qty)}
+                continue                       # adding it here too would count it twice
+            cur = row["qty"]
+            if cur.get("family") and cur.get("family") == qty.get("family") \
+                    and cur.get("lo") is not None and qty.get("lo") is not None:
+                cur["lo"] += qty["lo"]
+                cur["hi"] = (cur.get("hi") or cur["lo"]) + (qty.get("hi") or qty["lo"])
+    for e in payload.get("extras", []):
+        name = (e.get("item") or "").strip()
+        if name and name.lower() not in have:
+            rows.setdefault(name.lower(), {"item": name, "qty": {}})
+    return list(rows.values())
+
+
+@router.get("/shopping/{week_key}/price")
+async def price_shopping(week_key: str):
+    """Estimate this week's list at Willys (read-only, anonymous — see willys.py).
+
+    Never fails the request: a store-side problem comes back as `error` with an
+    empty total, because an estimate is a convenience and the shopping page must
+    render without it.
+    """
+    items = _aggregate_for_pricing(_shopping_payload(week_key))
+    return await willys.estimate(items)
 
 
 @router.post("/shopping/{week_key}/publish")
