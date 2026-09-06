@@ -33,9 +33,24 @@ from shopping import parse_qty, _shopping_payload
     # count with a size word (word kept as the display token)
     ("2", "small",  {"lo": 2.0,  "hi": 2.0,  "family": "count",  "unit": "small"}),
     ("3", "cloves", {"lo": 3.0,  "hi": 3.0,  "family": "count",  "unit": "clove"}),
+    # Turkish measures: a third of the recipes are written with them
+    ("1", "su bardağı",   {"lo": 200.0, "hi": 200.0, "family": "volume", "unit": ""}),
+    ("1", "bardak",       {"lo": 200.0, "hi": 200.0, "family": "volume", "unit": ""}),
+    ("1", "çay bardağı",  {"lo": 100.0, "hi": 100.0, "family": "volume", "unit": ""}),
+    ("2", "yemek kaşığı", {"lo": 6.0,   "hi": 6.0,   "family": "spoon",  "unit": ""}),
+    ("1", "tatlı kaşığı", {"lo": 2.0,   "hi": 2.0,   "family": "spoon",  "unit": ""}),
+    ("1", "çay kaşığı",   {"lo": 1.0,   "hi": 1.0,   "family": "spoon",  "unit": ""}),
+    ("2", "msk",          {"lo": 6.0,   "hi": 6.0,   "family": "spoon",  "unit": ""}),
+    ("3", "adet",         {"lo": 3.0,   "hi": 3.0,   "family": "count",  "unit": ""}),
+    ("2", "diş",          {"lo": 2.0,   "hi": 2.0,   "family": "count",  "unit": "clove"}),
+    ("1", "paket",        {"lo": 1.0,   "hi": 1.0,   "family": "count",  "unit": "pack"}),
+    # A pinch is about an eighth of a teaspoon. Approximating beats not parsing:
+    # an unparsed unit makes the price estimate bill a whole jar.
+    ("1", "pinch",  {"lo": 0.125, "hi": 0.125, "family": "spoon", "unit": ""}),
+    ("1", "tutam",  {"lo": 0.125, "hi": 0.125, "family": "spoon", "unit": ""}),
     # unparseable amount, or unknown unit → not summable
     ("a pinch", "", {"lo": None, "hi": None, "family": "",       "unit": ""}),
-    ("1", "pinch",  {"lo": None, "hi": None, "family": "",       "unit": ""}),
+    ("1", "sprinkle", {"lo": None, "hi": None, "family": "",     "unit": ""}),
 ])
 def test_parse_qty(amount, unit, expect):
     assert parse_qty(amount, unit) == expect

@@ -201,3 +201,16 @@ def test_unreconcilable_units_are_reported_not_guessed():
 def test_missing_compare_price_is_not_priced():
     kr, basis = willys.cost_of(_q(500, "mass"), _p("Utan Pris", None))
     assert kr is None and basis == "no compare price"
+
+
+def test_a_variable_weight_pack_is_not_one_piece():
+    """Chicken fillets ship as 'ca: 850g' — the same "ca:" a 180 g banana uses.
+    Reading the pack as a single item charges four breasts for one."""
+    assert _p("Kycklingfilé", 87.9, volume="ca: 850g").per_piece_grams is None
+    assert _p("Banan", 19.9, volume="ca: 180g").per_piece_grams == 180.0
+
+
+def test_herbal_tea_is_not_a_fresh_herb():
+    """'pepparmynta' genuinely ends in 'mynta', so head-noun ranking loves it."""
+    got = willys.pick("mynta", [_p("Pepparmynta Örtte", 13.9), _p("Mynta Kruka", 24.9)])
+    assert got.name == "Mynta Kruka"

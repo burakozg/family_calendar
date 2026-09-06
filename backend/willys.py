@@ -75,6 +75,11 @@ CACHE_TTL_S = 12 * 3600
 _CACHE_FILE = CACHE / "willys_search.json"
 
 
+# Heaviest thing a recipe plausibly counts one of. Above this a "ca:" label is a
+# variable-weight pack, not an item — see Product.per_piece_grams.
+_MAX_PIECE_G = 400.0
+
+
 class WillysUnavailable(Exception):
     """Willys could not be reached, or answered something we can't read."""
 
@@ -104,8 +109,17 @@ class Product:
         Willys writes an indicative single-item weight as "ca: 180g" (a banana, a
         garlic bulb) and a pack size as a bare "500g" / "1kg". They must not be
         confused: costing "2 onions" against a 1 kg *bag* bills two whole bags.
+
+        "ca:" alone isn't enough, though — a variable-weight MEAT pack carries it
+        too ("ca: 850g" of chicken fillets), and reading that as one piece charges
+        four times over for a single breast. Nothing sold by the piece weighs much
+        more than `_MAX_PIECE_G`, and above it "one pack" is the better answer
+        anyway, so the cap costs nothing and removes the whole failure mode.
         """
-        return _grams(self.display_volume) if re.match(r"\s*ca\b", self.display_volume, re.I) else None
+        if not re.match(r"\s*ca\b", self.display_volume, re.I):
+            return None
+        g = _grams(self.display_volume)
+        return g if g is not None and g <= _MAX_PIECE_G else None
 
 
 def _kr(s) -> float | None:
@@ -387,6 +401,7 @@ def is_free(item: str) -> bool:
 _NOT_FOOD = (
     "kattmat", "hundmat", "kattfoder", "hundfoder", "djurgodis",
     "glass", "godis", "chips", "snacks", "barnmat", "välling",
+    "örtte", "tepåsar",                     # "pepparmynta örtte" is not fresh mint
     "schampo", "tvål", "tvätt", "rengöring", "servett",
 )
 
@@ -552,6 +567,7 @@ async def estimate(items: list[dict]) -> dict:
     rows: list[dict] = []
     unmatched: list[dict] = []
     total = 0.0
+    considered = 0        # ingredients we actually tried to price (water excluded)
     cache = _cache_read()
     dirty = False
 
@@ -565,6 +581,7 @@ async def estimate(items: list[dict]) -> dict:
             term, translated = swedish_term(name)
             if not term:
                 continue
+            considered += 1
 
             before = len(cache)
             try:
@@ -572,7 +589,8 @@ async def estimate(items: list[dict]) -> dict:
             except WillysUnavailable as e:
                 log.warning("willys: %s", e)
                 return {"chain": "willys", "total": round(total, 2), "priced": len(rows),
-                        "rows": rows, "unmatched": unmatched, "error": str(e)}
+                        "items": considered, "rows": rows, "unmatched": unmatched,
+                        "error": str(e)}
             dirty = dirty or len(cache) != before
 
             qty = it.get("qty") or {}
@@ -596,5 +614,6 @@ async def estimate(items: list[dict]) -> dict:
 
     if dirty:
         _cache_write(cache)
-    return {"chain": "willys", "total": round(total, 2), "priced": sum(1 for r in rows if r["kr"] is not None),
+    return {"chain": "willys", "total": round(total, 2),
+            "priced": sum(1 for r in rows if r["kr"] is not None), "items": considered,
             "rows": rows, "unmatched": unmatched, "error": ""}

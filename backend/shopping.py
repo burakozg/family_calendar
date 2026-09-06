@@ -40,6 +40,27 @@ _UNIT_TABLE = {
     "tsp": ("spoon", 1), "teaspoon": ("spoon", 1), "teaspoons": ("spoon", 1),
     "tbsp": ("spoon", 3), "tbs": ("spoon", 3), "tablespoon": ("spoon", 3),
     "tablespoons": ("spoon", 3), "cup": ("spoon", 48), "cups": ("spoon", 48),
+    # Turkish kitchen measures — a third of these recipes are written with them,
+    # and an unrecognised unit costs the whole ingredient its quantity: the price
+    # estimate then falls back to a WHOLE PACK of salt for a pinch of it.
+    # Conventional sizes: su bardağı (water glass) 200 ml, çay bardağı (tea glass)
+    # 100 ml, fincan (coffee cup) 80 ml; yemek kaşığı = tbsp, tatlı kaşığı =
+    # dessert spoon (2 tsp), çay kaşığı = tsp. Both the fully-accented spelling and
+    # the bare-ASCII one occur in the data, so both are keys.
+    "bardak": ("volume", 200),
+    "su bardağı": ("volume", 200), "su bardagi": ("volume", 200),
+    "çay bardağı": ("volume", 100), "cay bardagi": ("volume", 100),
+    "tea glass": ("volume", 100), "fincan": ("volume", 80),
+    "yemek kaşığı": ("spoon", 3), "yemek kasigi": ("spoon", 3), "yk": ("spoon", 3),
+    "kaşık": ("spoon", 3), "kasik": ("spoon", 3),
+    "tepeleme kaşık": ("spoon", 3), "tepeleme kasik": ("spoon", 3),
+    "tatlı kaşığı": ("spoon", 2), "tatli kasigi": ("spoon", 2),
+    "çay kaşığı": ("spoon", 1), "cay kasigi": ("spoon", 1), "çay kasigi": ("spoon", 1),
+    # Swedish measures (msk/tsk/krm), since the shop and half the household are here
+    "msk": ("spoon", 3), "tsk": ("spoon", 1), "krm": ("spoon", 0.2),
+    # A pinch is about an eighth of a teaspoon. Approximate, but vastly closer than
+    # leaving it unparsed and billing a full jar of saffron.
+    "pinch": ("spoon", 0.125), "tutam": ("spoon", 0.125), "çimdik": ("spoon", 0.125),
 }
 
 # size/count words: not convertible, but summable as a count when the SAME word
@@ -49,9 +70,18 @@ _COUNT_WORDS = {
     "clove": "clove", "cloves": "clove", "piece": "piece", "pieces": "piece",
     "slice": "slice", "slices": "slice", "can": "can", "cans": "can",
     "pack": "pack", "packs": "pack", "packet": "pack", "packets": "pack",
+    "package": "pack", "packages": "pack",
     "bunch": "bunch", "bunches": "bunch", "head": "head", "heads": "head",
     "stalk": "stalk", "stalks": "stalk", "sprig": "sprig", "sprigs": "sprig",
     "handful": "handful", "handfuls": "handful",
+    # Turkish counters, mapped onto the same canonical tokens so a recipe written
+    # in Turkish sums with one written in English.
+    "adet": "", "tane": "",                      # bare count, like a plain number
+    "paket": "pack", "diş": "clove", "dis": "clove",
+    "demet": "bunch", "dal": "sprig", "dilim": "slice",
+    "avuç": "handful", "avuc": "handful",
+    "büyük": "large", "buyuk": "large", "küçük": "small", "kucuk": "small",
+    "orta": "medium", "orta boy": "medium",
 }
 
 _NUM = r"\d+(?:[.,]\d+)?"

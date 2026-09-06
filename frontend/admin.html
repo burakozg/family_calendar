@@ -472,10 +472,13 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
       </div>
       <div id="shop-daychips" class="day-chips"></div>
       <div id="shop-list"></div>
-      <div style="margin-top:16px;display:flex;align-items:center;gap:12px;">
+      <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <button class="save-btn" id="shop-publish-btn" onclick="shopPublish()" style="width:auto;padding:9px 16px;">📲 Publish to phone</button>
         <span id="shop-publish-status" style="font-size:13px;color:var(--text2);"></span>
+        <button class="save-btn" id="shop-price-btn" onclick="shopPrice()" style="width:auto;padding:9px 16px;">🧾 Price at Willys</button>
+        <span id="shop-price-status" style="font-size:13px;color:var(--text2);"></span>
       </div>
+      <div id="shop-price-out" style="margin-top:12px;"></div>
     </div>
 
     <!-- RECIPES -->
@@ -3115,6 +3118,56 @@ function aggregate(days, selectedIdxs) {
     out.set(norm, {display: parts.join(' + '), category: e.category || 'Other', item: e.item});
   });
   return out;
+}
+
+// Estimate the week's list at Willys (backend/willys.py — read-only, anonymous).
+// On demand, never on load: a cold cache is one request per ingredient, and the
+// number is a planning aid rather than something the page needs to render.
+//
+// The unpriced items are shown as prominently as the total, deliberately. The
+// total only covers what could be matched, so a quiet omission would read as "the
+// week is cheap" when it means "we couldn't price the mince".
+async function shopPrice() {
+  const btn = document.getElementById('shop-price-btn');
+  const st  = document.getElementById('shop-price-status');
+  const out = document.getElementById('shop-price-out');
+  const wk  = weekKey(shopWeekStart);
+  btn.disabled = true; st.textContent = 'Checking Willys…'; st.style.color = 'var(--text2)';
+  out.innerHTML = '';
+  try {
+    const d = await (await fetch(`${API}/shopping/${wk}/price`)).json();
+    if (d.error) {
+      st.textContent = 'Willys unreachable'; st.style.color = 'var(--danger)';
+      return;
+    }
+    st.textContent = '';
+    const rows = (d.rows || []).filter(r => r.kr != null).sort((a, b) => b.kr - a.kr);
+    const un   = d.unmatched || [];
+    const approx = rows.some(r => (r.basis || '').indexOf('one pack') === 0);
+    out.innerHTML = `
+      <div class="card">
+        <div style="font-size:22px;font-weight:600;">≈ ${fmtNum(d.total)} kr</div>
+        <div style="font-size:13px;color:var(--text2);margin-top:2px;">
+          ${d.priced} of ${d.items} items priced at Willys${approx ? ' · some quantities unknown, so a few are costed as a whole pack' : ''}
+        </div>
+        ${un.length ? `<div style="margin-top:10px;font-size:13px;">
+          <b>Not included (${un.length}):</b>
+          ${un.map(u => `<div style="color:var(--text2);margin-top:3px;">${shopEsc(u.item)} <span style="color:var(--text3);">— ${shopEsc(u.why)}</span></div>`).join('')}
+        </div>` : ''}
+        <div style="margin-top:12px;font-size:13px;">
+          ${rows.map(r => `<div style="display:flex;gap:10px;padding:3px 0;border-top:1px solid var(--border);">
+            <span style="flex:1;">${shopEsc(r.item)}</span>
+            <span style="flex:1.4;color:var(--text2);">${shopEsc(r.product)}${r.volume ? ' · ' + shopEsc(r.volume) : ''}</span>
+            <span style="color:var(--text3);white-space:nowrap;">${shopEsc(r.basis)}</span>
+            <span style="width:64px;text-align:right;">${fmtNum(r.kr)} kr</span>
+          </div>`).join('')}
+        </div>
+      </div>`;
+  } catch (e) {
+    st.textContent = 'Could not price the list'; st.style.color = 'var(--danger)';
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function shopPublish() {
