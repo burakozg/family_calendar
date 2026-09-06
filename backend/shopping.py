@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 import ai
 import relay_client
+import willys
 from activity_log import log_event
 from bus import broadcast
 from relay_client import _log_relay, _relay_headers
@@ -377,6 +378,53 @@ async def delete_shopping_extra(week_key: str, request: Request):
     await publish_shopping(week_key)
     await broadcast("update", {"section": "shopping"})
     return {"ok": True}
+
+
+def _aggregate_for_pricing(payload: dict) -> list:
+    """One row per distinct ingredient for the whole week, quantities summed.
+
+    The clients sum per-day quantities themselves for display (see parse_qty), but
+    a price estimate has to do it server-side: buying 200 g of mince on Tuesday and
+    300 g on Friday is one 500 g purchase, and pricing the days separately would
+    round a pack in twice. Items already marked 'have at home' are excluded — you
+    aren't buying those. Quantities only sum within one family; a mix (400 g mince
+    and '2 packs' mince) keeps the mass and drops the odd one out rather than
+    inventing a total.
+    """
+    have = {h.lower() for h in (payload.get("have") or [])}
+    rows: dict[str, dict] = {}
+    for day in payload.get("days", []):
+        for ing in day.get("ingredients", []):
+            name = (ing.get("item") or "").strip()
+            if not name or name.lower() in have:
+                continue
+            qty = ing.get("qty") or {}
+            row = rows.get(name.lower())
+            if row is None:                    # first sighting seeds the quantity;
+                rows[name.lower()] = {"item": name, "qty": dict(qty)}
+                continue                       # adding it here too would count it twice
+            cur = row["qty"]
+            if cur.get("family") and cur.get("family") == qty.get("family") \
+                    and cur.get("lo") is not None and qty.get("lo") is not None:
+                cur["lo"] += qty["lo"]
+                cur["hi"] = (cur.get("hi") or cur["lo"]) + (qty.get("hi") or qty["lo"])
+    for e in payload.get("extras", []):
+        name = (e.get("item") or "").strip()
+        if name and name.lower() not in have:
+            rows.setdefault(name.lower(), {"item": name, "qty": {}})
+    return list(rows.values())
+
+
+@router.get("/shopping/{week_key}/price")
+async def price_shopping(week_key: str):
+    """Estimate this week's list at Willys (read-only, anonymous — see willys.py).
+
+    Never fails the request: a store-side problem comes back as `error` with an
+    empty total, because an estimate is a convenience and the shopping page must
+    render without it.
+    """
+    items = _aggregate_for_pricing(_shopping_payload(week_key))
+    return await willys.estimate(items)
 
 
 @router.post("/shopping/{week_key}/publish")

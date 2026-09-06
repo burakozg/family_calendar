@@ -15,6 +15,7 @@ The backend is split into focused modules (see ARCHITECTURE.md):
   meals.py          weekly plan + two-step AI planner (routes)
   recipes.py        recipe CRUD + AI extraction/import pipelines (routes)
   mailsync.py       mailbox.org mail/calendar sync (MAILSYNC_DESIGN.md)
+  willys.py         Willys price lookup (read-only, anonymous) for list costing
 
 main.py keeps: app setup + middleware (Host allowlist, body cap, X-Who), the
 unhandled-exception logger, settings/events routes, logs/display/SSE routes,
