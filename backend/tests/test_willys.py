@@ -244,19 +244,34 @@ def test_pick_buys_the_sack_once_the_sack_is_genuinely_cheaper():
 
 # ── what the cart will actually accept ────────────────────────────────────────
 
-def test_basket_type_comes_from_the_code_suffix_not_the_field():
-    """Search reports basket type ST for 100263457_KG — a cucumber sold by weight.
-    Believing the field sends it as a count of pieces, which the cart rejects."""
-    raw = {"code": "100263457_KG", "name": "Gurka Västerås Klass 1",
-           "productBasketType": {"code": "ST"}, "priceValue": 10.0,
-           "comparePrice": "20,00 kr", "comparePriceUnit": "kg", "displayVolume": "ca: 100g"}
-    assert willys._product(raw).basket_type == "KG"
+def test_a_kg_code_suffix_does_not_mean_bought_by_the_kilo():
+    """101203622_KG is "Nötfärs 20% Irland": a variable-weight ~1 kg pack you take
+    ONE of and have weighed at the till. The suffix describes how it is priced;
+    productBasketType says how it is bought, and ordering kilos of it is refused."""
+    raw = {"code": "101203622_KG", "name": "Nötfärs 20% Irland",
+           "productBasketType": {"code": "ST"}, "priceValue": 119.0,
+           "comparePrice": "119,00 kr", "comparePriceUnit": "kg",
+           "displayVolume": "ca: 1kg", "incrementValue": 1.0}
+    assert willys._product(raw).pick_unit == "pieces"
+
+
+def test_genuinely_weight_bought_products_still_ask_for_kilos():
+    raw = {"code": "12345_KG", "productBasketType": {"code": "KG"}, "incrementValue": 0.1}
     assert willys._product(raw).pick_unit == "kilogram"
 
 
-def test_a_missing_suffix_falls_back_to_the_field():
-    raw = {"code": "12345", "productBasketType": {"code": "KG"}}
-    assert willys._product(raw).basket_type == "KG"
+def test_the_quantity_lands_on_the_step_the_product_is_sold_in():
+    """A quantity off `incrementValue` is refused as an illegal argument with no
+    hint as to why — mince comes in whole ~1 kg packs, not 0.196 of one."""
+    mince = Product(code="101203622_KG", name="Nötfärs", manufacturer="", price=119.0,
+                    compare_price=119.0, compare_unit="kg", display_volume="ca: 1kg",
+                    out_of_stock=False, basket_type="ST", increment=1.0)
+    assert willys.plan(_q(300, "mass"), mince).units == 1.0
+
+    loose = Product(code="9_KG", name="Fläskfärs", manufacturer="", price=50.0,
+                    compare_price=50.0, compare_unit="kg", display_volume="ca: 500g",
+                    out_of_stock=False, basket_type="KG", increment=0.1)
+    assert willys.plan(_q(250, "mass"), loose).units == 0.3
 
 
 def test_pieces_are_whole_numbers():

@@ -99,6 +99,7 @@ class Product:
     display_volume: str           # '500g', 'ca: 180g', '1,5l', ''
     out_of_stock: bool
     basket_type: str = "ST"       # 'ST' (bought by the piece) | 'KG' (by weight)
+    increment: float = 1.0        # the step the cart accepts for this product
 
     @property
     def pick_unit(self) -> str:
@@ -179,15 +180,12 @@ def _grams(label: str) -> float | None:
 def _basket_type(raw: dict) -> str:
     """'ST' (bought by the piece) or 'KG' (bought by weight).
 
-    Taken from the code suffix, because `productBasketType` lies in search
-    results: "Gurka Västerås Klass 1" has the code 100263457_KG and reports
-    basket type ST. Believing the field sends a weight-sold cucumber as a count of
-    pieces, which the cart rejects outright as an illegal argument.
+    From `productBasketType`, which is what the storefront itself uses to choose
+    a pick unit. The code SUFFIX is a trap: 101203622_KG is "Nötfärs 20% Irland",
+    a variable-weight ~1 kg pack you take one of and have weighed at the till —
+    its basket type is ST, and ordering it as kilograms is rejected outright.
+    The suffix describes how it is priced, not how it is bought.
     """
-    code = str(raw.get("code") or "")
-    suffix = code.rsplit("_", 1)[-1].upper() if "_" in code else ""
-    if suffix in ("ST", "KG"):
-        return suffix
     return str(((raw.get("productBasketType") or {}).get("code")) or "ST").upper()
 
 
@@ -202,6 +200,7 @@ def _product(raw: dict) -> Product:
         display_volume = str(raw.get("displayVolume") or ""),
         out_of_stock   = bool(raw.get("outOfStock")),
         basket_type    = _basket_type(raw),
+        increment      = float(raw.get("incrementValue") or 1.0) or 1.0,
     )
 
 
@@ -654,27 +653,23 @@ def _plan_raw(qty: dict, p: Product) -> Line:
                 f"{packs} × {size} pack" if packs > 1 else f"1 pack of {size} (need {need})")
 
 
-# The storefront's own minimum for a weight-sold line; below it the cart balks.
-_MIN_KG = 0.1
-
-
 def plan(qty: dict, p: Product) -> Line:
     """What to buy, rounded to something the shop can actually sell you.
 
-    Pieces come in whole numbers — half a cucumber is not a thing you can put in a
-    trolley, and the cart rejects a fractional count as an illegal argument. Weight
-    lines get a floor instead, since asking for 50 g of anything is refused too.
+    Every product states the step it is sold in (`incrementValue`), and a quantity
+    off that step is refused as an illegal argument with no hint as to why. Half a
+    cucumber is the obvious case — not a thing you can put in a trolley — but the
+    same rule covers mince sold in whole ~1 kg packs.
 
-    The price moves with the rounding. Buying a whole cucumber to satisfy half of
+    Rounding up moves the price with it. Buying a whole cucumber to satisfy half of
     one costs a whole cucumber, and the estimate has to say so — otherwise the
     number on screen stops being the number at the till, which is the one thing
     this pair of functions exists to keep true.
     """
     line = _plan_raw(qty, p)
-    if line.pick_unit == "pieces":
-        units = float(max(math.ceil(line.units - 1e-9), 1))
-    else:
-        units = max(round(line.units, 3), _MIN_KG)
+    step  = p.increment if p.increment > 0 else 1.0
+    steps = max(math.ceil(line.units / step - 1e-9), 1)
+    units = round(steps * step, 3)
     if units == line.units or line.units <= 0:
         return line._replace(units=units)
     kr = None if line.kr is None else line.kr * units / line.units
