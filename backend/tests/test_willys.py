@@ -6,6 +6,9 @@ data during development, which is why they read like a list of grievances:
 cat food winning on price, a börek beating mince, ice cream matching "banan",
 and two onions billed as two one-kilo sacks.
 """
+import httpx
+import pytest
+
 import willys
 from willys import Product
 
@@ -295,3 +298,34 @@ def test_a_weight_line_is_never_below_the_shop_minimum():
                 compare_unit="kg", display_volume="ca: 100g", out_of_stock=False, basket_type="KG")
     line = willys.plan(_q(0.5, "count"), p)
     assert line.pick_unit == "kilogram" and line.units >= 0.1
+
+
+# ── store scoping ─────────────────────────────────────────────────────────────
+
+@pytest.mark.anyio
+async def test_search_is_cached_per_assortment(anyio_backend, monkeypatch, tmp_path):
+    """The store and the national catalogue answer the same query with different
+    products at different prices, so one cache entry cannot serve both — the
+    anonymous answer would be handed to the cart, which rejects codes its store
+    has never heard of."""
+    monkeypatch.setattr(willys, "_CACHE_FILE", tmp_path / "c.json")
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers.get("cookie"))
+        code = "101895176_ST" if request.headers.get("cookie") else "100261164_ST"
+        return httpx.Response(200, json={"results": [
+            {"code": code, "name": "Vispgrädde 40%", "priceValue": 17.9,
+             "comparePrice": "59,67 kr", "comparePriceUnit": "l", "displayVolume": "3dl"}]})
+
+    cache = {}
+    async with httpx.AsyncClient(base_url=willys.BASE,
+                                 transport=httpx.MockTransport(handler)) as c:
+        anon = await willys.search("vispgrädde", client=c, cache=cache)
+        store = await willys.search("vispgrädde", client=c, cache=cache, cookie="JSESSIONID=x")
+        again = await willys.search("vispgrädde", client=c, cache=cache, cookie="JSESSIONID=x")
+
+    assert anon[0].code == "100261164_ST"
+    assert store[0].code == "101895176_ST"      # not served the anonymous answer
+    assert again[0].code == store[0].code
+    assert len(seen) == 2                       # the repeat came from cache

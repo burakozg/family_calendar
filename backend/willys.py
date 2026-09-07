@@ -3,12 +3,18 @@
 What this is for: costing a planned week before you shop, so the shopping page
 can say "this list is about 780 kr at Willys" and which items it couldn't price.
 
-Deliberately read-only and anonymous. No account, no personnummer, no password,
-no session cookie — this module only ever issues GETs against a public search
-endpoint. That is the whole reason it is safe to run on a schedule: the worst a
-break can do is leave the estimate blank. Anything that *writes* (a cart, an
-order) is a separate module with a completely different risk profile, and this
-one must never grow those verbs.
+Deliberately read-only: this module only ever issues GETs. That is why it is safe
+to run on a schedule — the worst a break can do is leave the estimate blank.
+Anything that *writes* (a cart, an order) is a separate module with a completely
+different risk profile, and this one must never grow those verbs.
+
+It does take an optional session cookie, and it has to. Willys is store-scoped,
+and the same product carries a DIFFERENT CODE per assortment: "Vispgrädde 40%
+3dl" is 100261164_ST anonymously and 101895176_ST in the signed-in store, which
+does not stock the first at all. Pricing anonymously therefore costs the wrong
+store's shelf and hands the cart codes it will reject as an illegal argument. No
+password is involved — the cookie is the same imported session willys_cart.py
+uses, and without one this falls back to the national assortment.
 
 The endpoint was found from the site's own config rather than a third-party
 package: `GET https://www.willys.se/api/config` publishes `API_URL`, and the
@@ -221,7 +227,7 @@ def _cache_write(cache: dict) -> None:
 
 
 async def search(term: str, *, size: int = 10, client: httpx.AsyncClient | None = None,
-                 cache: dict | None = None) -> list[Product]:
+                 cache: dict | None = None, cookie: str = "") -> list[Product]:
     """Products matching `term`, best-relevance first. [] when nothing matched.
 
     `cache` lets a caller thread one dict through a whole list so the 12h store
@@ -231,7 +237,9 @@ async def search(term: str, *, size: int = 10, client: httpx.AsyncClient | None 
     if not term:
         return []
 
-    key = f"{term.lower()}|{size}"
+    # Scoped, because the store assortment and the national one answer the same
+    # query with different products at different prices.
+    key = f"{'store' if cookie else 'anon'}|{term.lower()}|{size}"
     store = _cache_read() if cache is None else cache
     hit = store.get(key)
     if hit and (time.time() - hit.get("at", 0)) < CACHE_TTL_S:
@@ -241,7 +249,8 @@ async def search(term: str, *, size: int = 10, client: httpx.AsyncClient | None 
     client = client or httpx.AsyncClient(base_url=BASE, timeout=TIMEOUT_S,
                                          headers={"User-Agent": UA, "Accept": "application/json"})
     try:
-        r = await client.get(SEARCH_PATH, params={"q": term, "size": size})
+        headers = {"Cookie": cookie} if cookie else None
+        r = await client.get(SEARCH_PATH, params={"q": term, "size": size}, headers=headers)
         r.raise_for_status()
         results = (r.json() or {}).get("results") or []
     except Exception as e:
@@ -689,7 +698,7 @@ def _g(v: float) -> str:
 
 # ── the estimate ──────────────────────────────────────────────────────────────
 
-async def estimate(items: list[dict]) -> dict:
+async def estimate(items: list[dict], *, cookie: str = "") -> dict:
     """Price a shopping list at Willys, as a basket you could actually buy.
 
     `items` is chain-agnostic: [{"item": "ground beef", "qty": {...}}, ...] with
@@ -733,7 +742,7 @@ async def estimate(items: list[dict]) -> dict:
 
             before = len(cache)
             try:
-                products = await search(term, client=client, cache=cache)
+                products = await search(term, client=client, cache=cache, cookie=cookie)
             except WillysUnavailable as e:
                 log.warning("willys: %s", e)
                 if dirty:

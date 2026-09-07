@@ -518,7 +518,9 @@ async def price_shopping(week_key: str):
     render without it.
     """
     items = _aggregate_for_pricing(_shopping_payload(week_key))
-    return await willys.estimate(items)
+    # Priced against the signed-in store when a session is imported: assortments
+    # and prices both differ from the anonymous national catalogue.
+    return await willys.estimate(items, cookie=willys_cart.session_cookie())
 
 
 @router.post("/shopping/{week_key}/cart")
@@ -539,7 +541,8 @@ async def push_shopping_cart(week_key: str, request: Request):
     if not willys_cart.configured():
         raise HTTPException(400, f"No Willys session imported — see {willys_cart.SESSION_FILE}")
 
-    est = await willys.estimate(_aggregate_for_pricing(_shopping_payload(week_key)))
+    est = await willys.estimate(_aggregate_for_pricing(_shopping_payload(week_key)),
+                                cookie=willys_cart.session_cookie())
     if est.get("error"):
         raise HTTPException(502, f"Could not price the list: {est['error']}")
     try:
