@@ -240,3 +240,43 @@ def test_pick_buys_the_sack_once_the_sack_is_genuinely_cheaper():
     bulk  = _p("Vetemjöl Stor",   9.0,  volume="5kg", price=45.0)
     got = willys.pick("vetemjöl", [bulk, small], qty=_q(3000, "mass"))
     assert got.name == "Vetemjöl Stor"          # 1×45 beats 2×25
+
+
+# ── what the cart will actually accept ────────────────────────────────────────
+
+def test_basket_type_comes_from_the_code_suffix_not_the_field():
+    """Search reports basket type ST for 100263457_KG — a cucumber sold by weight.
+    Believing the field sends it as a count of pieces, which the cart rejects."""
+    raw = {"code": "100263457_KG", "name": "Gurka Västerås Klass 1",
+           "productBasketType": {"code": "ST"}, "priceValue": 10.0,
+           "comparePrice": "20,00 kr", "comparePriceUnit": "kg", "displayVolume": "ca: 100g"}
+    assert willys._product(raw).basket_type == "KG"
+    assert willys._product(raw).pick_unit == "kilogram"
+
+
+def test_a_missing_suffix_falls_back_to_the_field():
+    raw = {"code": "12345", "productBasketType": {"code": "KG"}}
+    assert willys._product(raw).basket_type == "KG"
+
+
+def test_pieces_are_whole_numbers():
+    """Half a cucumber is not a thing you can put in a trolley."""
+    line = willys.plan(_q(0.5, "count"), _p("Gurka", 20.0, volume="ca: 100g", price=10.0))
+    assert line.pick_unit == "pieces" and line.units == 1.0
+
+
+def test_rounding_up_a_piece_moves_the_price_with_it():
+    """Buying a whole cucumber to satisfy half of one costs a whole cucumber, and
+    the estimate has to say so — or it stops matching the till."""
+    half  = willys._plan_raw(_q(0.5, "count"), _p("Gurka", 20.0, volume="ca: 100g", price=10.0))
+    whole = willys.plan(_q(0.5, "count"), _p("Gurka", 20.0, volume="ca: 100g", price=10.0))
+    assert whole.units == 2 * half.units
+    assert round(whole.kr, 4) == round(2 * half.kr, 4)
+
+
+def test_a_weight_line_is_never_below_the_shop_minimum():
+    """50 g of anything is refused; the floor is a tenth of a kilo."""
+    p = Product(code="1_KG", name="Gurka", manufacturer="", price=10.0, compare_price=20.0,
+                compare_unit="kg", display_volume="ca: 100g", out_of_stock=False, basket_type="KG")
+    line = willys.plan(_q(0.5, "count"), p)
+    assert line.pick_unit == "kilogram" and line.units >= 0.1

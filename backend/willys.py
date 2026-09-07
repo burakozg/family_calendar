@@ -176,6 +176,21 @@ def _grams(label: str) -> float | None:
     return float(m.group(1).replace(",", ".")) * _VOL_TO_G[m.group(2).lower()]
 
 
+def _basket_type(raw: dict) -> str:
+    """'ST' (bought by the piece) or 'KG' (bought by weight).
+
+    Taken from the code suffix, because `productBasketType` lies in search
+    results: "Gurka Västerås Klass 1" has the code 100263457_KG and reports
+    basket type ST. Believing the field sends a weight-sold cucumber as a count of
+    pieces, which the cart rejects outright as an illegal argument.
+    """
+    code = str(raw.get("code") or "")
+    suffix = code.rsplit("_", 1)[-1].upper() if "_" in code else ""
+    if suffix in ("ST", "KG"):
+        return suffix
+    return str(((raw.get("productBasketType") or {}).get("code")) or "ST").upper()
+
+
 def _product(raw: dict) -> Product:
     return Product(
         code           = str(raw.get("code") or ""),
@@ -186,7 +201,7 @@ def _product(raw: dict) -> Product:
         compare_unit   = str(raw.get("comparePriceUnit") or "").lower(),
         display_volume = str(raw.get("displayVolume") or ""),
         out_of_stock   = bool(raw.get("outOfStock")),
-        basket_type    = str(((raw.get("productBasketType") or {}).get("code")) or "ST"),
+        basket_type    = _basket_type(raw),
     )
 
 
@@ -553,7 +568,7 @@ class Line(NamedTuple):
     basis: str            # how that was worked out, for the reader
 
 
-def plan(qty: dict, p: Product) -> Line:
+def _plan_raw(qty: dict, p: Product) -> Line:
     """Decide what to actually buy for this ingredient, and what it costs.
 
     Price and cart line are the same decision, so they are made in one place: the
@@ -637,6 +652,33 @@ def plan(qty: dict, p: Product) -> Line:
     size  = _g(pack) if fam != "count" else f"{pack:g}"
     return Line(float(packs), pu, packs * shelf,
                 f"{packs} × {size} pack" if packs > 1 else f"1 pack of {size} (need {need})")
+
+
+# The storefront's own minimum for a weight-sold line; below it the cart balks.
+_MIN_KG = 0.1
+
+
+def plan(qty: dict, p: Product) -> Line:
+    """What to buy, rounded to something the shop can actually sell you.
+
+    Pieces come in whole numbers — half a cucumber is not a thing you can put in a
+    trolley, and the cart rejects a fractional count as an illegal argument. Weight
+    lines get a floor instead, since asking for 50 g of anything is refused too.
+
+    The price moves with the rounding. Buying a whole cucumber to satisfy half of
+    one costs a whole cucumber, and the estimate has to say so — otherwise the
+    number on screen stops being the number at the till, which is the one thing
+    this pair of functions exists to keep true.
+    """
+    line = _plan_raw(qty, p)
+    if line.pick_unit == "pieces":
+        units = float(max(math.ceil(line.units - 1e-9), 1))
+    else:
+        units = max(round(line.units, 3), _MIN_KG)
+    if units == line.units or line.units <= 0:
+        return line._replace(units=units)
+    kr = None if line.kr is None else line.kr * units / line.units
+    return Line(units, line.pick_unit, kr, f"{line.basis} · rounded to {units:g}")
 
 
 def cost_of(qty: dict, p: Product) -> tuple[float | None, str]:
