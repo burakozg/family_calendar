@@ -74,12 +74,28 @@ def configured() -> bool:
 
 
 def _client(cookie: str) -> httpx.AsyncClient:
-    # One client for the whole push: the jar picks up JSESSIONID/ROUTE from the
-    # token call and carries them into the POSTs, which is the entire fix for
-    # `csrf.badormissing`. Doing this by hand is what makes it hard in curl.
+    """One client for the whole push, with the imported cookies seeded into its jar.
+
+    Seeded into the JAR, emphatically not pinned as a `Cookie` header — httpx
+    leaves an explicit header alone and never merges `Set-Cookie` into it, which
+    silently breaks the one thing that has to happen here: fetching the CSRF token
+    ISSUES A NEW JSESSIONID, and the token is bound to that new session. Post with
+    the imported session id and the token belongs to a session the request isn't
+    using, which the API reports as `csrf.badormissing` — a message that sounds
+    like a missing header and is really a mismatched session.
+
+    With the cookies in the jar, httpx adopts the new session id automatically and
+    keeps everything else, exactly as a browser would.
+    """
+    jar = httpx.Cookies()
+    host = httpx.URL(BASE).host
+    for part in cookie.split(";"):
+        if "=" in part:
+            name, value = part.strip().split("=", 1)
+            jar.set(name, value, domain=host, path="/")
     return httpx.AsyncClient(
-        base_url=BASE, timeout=TIMEOUT_S, follow_redirects=False,
-        headers={"User-Agent": UA, "Accept": "application/json", "Cookie": cookie},
+        base_url=BASE, timeout=TIMEOUT_S, follow_redirects=False, cookies=jar,
+        headers={"User-Agent": UA, "Accept": "application/json"},
     )
 
 

@@ -192,3 +192,44 @@ def test_pick_unit_follows_how_the_thing_is_bought():
                        basket_type=bt)
     assert p("ST").pick_unit == "pieces"
     assert p("KG").pick_unit == "kilogram"
+
+
+@pytest.mark.anyio
+async def test_the_session_issued_by_the_token_call_is_the_one_that_posts(
+        anyio_backend, monkeypatch, tmp_path):
+    """Fetching the CSRF token issues a NEW JSESSIONID, and the token is bound to
+    it. Posting with the imported session id instead gets `csrf.badormissing` — a
+    message that sounds like a missing header and is really a mismatched session.
+
+    Exercises the real `_client`, since the bug lived in exactly the seeding the
+    other tests stub out.
+    """
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, request.headers.get("cookie", "")))
+        if request.url.path.endswith("/customer"):
+            return httpx.Response(200, json={"uid": "testuser1"})
+        if request.url.path.endswith("/csrf-token"):
+            return httpx.Response(200, json="tok",
+                                  headers=[("Set-Cookie", "JSESSIONID=NEW; Path=/")])
+        return httpx.Response(200, json=CART_OK)
+
+    monkeypatch.setattr(willys_cart, "SESSION_FILE", tmp_path / "s.json")
+    willys_cart.SESSION_FILE.write_text(
+        json.dumps({"cookie": "JSESSIONID=OLD; __Host-csrf-token=T; ROUTE=.n1"}))
+
+    real = willys_cart._client
+    def patched(cookie):                      # real seeding, fake wire
+        c = real(cookie)
+        c._transport = httpx.MockTransport(handler)
+        return c
+    monkeypatch.setattr(willys_cart, "_client", patched)
+
+    await willys_cart.push([_row()])
+
+    add = next(c for p, c in seen if p.endswith("addProduct"))
+    assert "JSESSIONID=NEW" in add           # adopted from the token response
+    assert "JSESSIONID=OLD" not in add       # and the stale one is gone
+    assert "__Host-csrf-token=T" in add      # imported cookies still carried
+    assert "ROUTE=.n1" in add
