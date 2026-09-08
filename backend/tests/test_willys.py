@@ -329,3 +329,34 @@ async def test_search_is_cached_per_assortment(anyio_backend, monkeypatch, tmp_p
     assert store[0].code == "101895176_ST"      # not served the anonymous answer
     assert again[0].code == store[0].code
     assert len(seen) == 2                       # the repeat came from cache
+
+
+def test_average_weight_beats_parsing_the_label():
+    """`averageWeight` states the per-item weight outright — 0.098 kg for a
+    tomato, 1.0 kg for a pack of mince — and needs no `ca:` heuristic or cap."""
+    raw = {"code": "101203622_KG", "productBasketType": {"code": "ST"},
+           "averageWeight": 1.0, "displayVolume": "ca: 1kg", "priceValue": 119.0,
+           "comparePrice": "119,00 kr", "comparePriceUnit": "kg"}
+    assert willys._product(raw).per_piece_grams == 1000.0     # not capped away
+
+
+def test_loose_weight_is_charged_for_what_is_ordered():
+    """500 g of tomatoes is six tomatoes weighing 588 g, and the till charges for
+    588 g. Pricing the 500 g the recipe asked for makes the estimate disagree with
+    the cart it just filled."""
+    tomato = Product(code="100521259_KG", name="Tomat", manufacturer="", price=59.9,
+                     compare_price=59.9, compare_unit="kg", display_volume="ca: 98g",
+                     out_of_stock=False, basket_type="ST", increment=1.0,
+                     average_weight=0.098)
+    line = willys.plan(_q(500, "mass"), tomato)
+    assert line.units == 6.0
+    assert round(line.kr, 2) == round(6 * 0.098 * 59.9, 2) == 35.22
+
+
+def test_a_one_kilo_pack_is_one_pack_not_a_fraction_of_need():
+    """1.25 kg of mince is two ~1 kg packs, and costs two."""
+    mince = Product(code="101203622_KG", name="Nötfärs", manufacturer="", price=119.0,
+                    compare_price=119.0, compare_unit="kg", display_volume="ca: 1kg",
+                    out_of_stock=False, basket_type="ST", increment=1.0, average_weight=1.0)
+    line = willys.plan(_q(1250, "mass"), mince)
+    assert line.units == 2.0 and round(line.kr, 2) == 238.0

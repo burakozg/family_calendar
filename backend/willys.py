@@ -106,6 +106,7 @@ class Product:
     out_of_stock: bool
     basket_type: str = "ST"       # 'ST' (bought by the piece) | 'KG' (by weight)
     increment: float = 1.0        # the step the cart accepts for this product
+    average_weight: float = 0.0   # kg per item, for variable-weight goods (0 = n/a)
 
     @property
     def pick_unit(self) -> str:
@@ -123,7 +124,11 @@ class Product:
 
     @property
     def per_piece_grams(self) -> float | None:
-        """Weight of ONE item, and only when the label actually means one.
+        """Weight of ONE item, in grams.
+
+        `averageWeight` states it outright for variable-weight goods and is the
+        authority when present — a tomato is 0.098 kg, a pack of mince 1.0 kg. The
+        label is only parsed when the field is absent.
 
         Willys writes an indicative single-item weight as "ca: 180g" (a banana, a
         garlic bulb) and a pack size as a bare "500g" / "1kg". They must not be
@@ -135,6 +140,8 @@ class Product:
         more than `_MAX_PIECE_G`, and above it "one pack" is the better answer
         anyway, so the cap costs nothing and removes the whole failure mode.
         """
+        if self.average_weight:
+            return self.average_weight * 1000.0
         if not self.is_loose:
             return None
         g = _grams(self.display_volume)
@@ -207,6 +214,7 @@ def _product(raw: dict) -> Product:
         out_of_stock   = bool(raw.get("outOfStock")),
         basket_type    = _basket_type(raw),
         increment      = float(raw.get("incrementValue") or 1.0) or 1.0,
+        average_weight = float(raw.get("averageWeight") or 0.0),
     )
 
 
@@ -308,7 +316,8 @@ _SV: dict[str, str] = {
     "cream cheese": "färskost",
     "parmesan": "parmesan", "mozzarella": "mozzarella",
     # produce
-    "onion": "gul lök", "soğan": "gul lök", "sogan": "gul lök",
+    "onion": "gul lök", "onions": "gul lök", "yellow onion": "gul lök",
+    "yellow onions": "gul lök", "soğan": "gul lök", "sogan": "gul lök",
     "spring onion": "salladslök", "taze soğan": "salladslök", "taze sogan": "salladslök",
     "red onion": "rödlök", "kırmızı soğan": "rödlök",
     # "sarmısak" and "sarımsak" are both current spellings; recipes use both.
@@ -323,7 +332,7 @@ _SV: dict[str, str] = {
     "chili": "chili", "acı biber": "chili",
     "eggplant": "aubergine", "patlıcan": "aubergine",
     "zucchini": "zucchini", "kabak": "zucchini",
-    "mushroom": "champinjoner", "mantar": "champinjoner",
+    "mushroom": "champinjoner", "mushrooms": "champinjoner", "mantar": "champinjoner",
     "spinach": "spenat", "ıspanak": "spenat", "ispanak": "spenat",
     "lettuce": "sallad", "marul": "romansallad", "salata": "sallad",
     "cabbage": "vitkål", "lahana": "vitkål",
@@ -333,7 +342,11 @@ _SV: dict[str, str] = {
     "corn": "majs", "mısır": "majs",
     "green beans": "haricots verts", "taze fasulye": "haricots verts",
     "lemon": "citron", "limon": "citron",
+    # Turkish marks the genitive on both words, so the same thing appears as
+    # "limon suyu" and "limonun suyu"; neither is reachable from the other by
+    # stripping qualifiers.
     "lemon juice": "citronjuice", "limon suyu": "citronjuice",
+    "limonun suyu": "citronjuice", "limon suyu̇": "citronjuice",
     "apple": "äpple", "elma": "äpple",
     "banana": "banan", "muz": "banan",
     "orange": "apelsin", "portakal": "apelsin",
@@ -636,11 +649,15 @@ def _plan_raw(qty: dict, p: Product) -> Line:
             if unit == "st":
                 return Line(lo, pu, lo * p.compare_price, f"loose · {lo:g} × {p.compare_price:g} kr/st")
         if fam in ("mass", "volume") and unit in ("kg", "l"):
-            # Charged for the weight needed, but the cart still takes a count of
-            # items, so ask for as many as cover it.
+            # The cart takes a count of items, so ask for as many as cover the
+            # need — and charge for THOSE, not for the need. 500 g of tomatoes is
+            # six tomatoes weighing 588 g, and the till charges for 588 g.
             g = p.per_piece_grams
-            n = max(math.ceil(lo / g - 1e-9), 1) if g else 1.0
-            return Line(n, pu, lo / 1000.0 * p.compare_price,
+            if g:
+                n = max(math.ceil(lo / g - 1e-9), 1)
+                return Line(float(n), pu, n * g / 1000.0 * p.compare_price,
+                            f"loose · {n} × {g:g}g @ {p.compare_price:g} kr/{unit}")
+            return Line(1.0, pu, lo / 1000.0 * p.compare_price,
                         f"loose · {_g(lo)} @ {p.compare_price:g} kr/{unit}")
 
     # ── packaged: whole packs only ────────────────────────────────────────────
