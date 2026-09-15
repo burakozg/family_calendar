@@ -142,14 +142,14 @@ deploy_apply() {
   nas_put "$RENDERED" "${NAS_APP_DIR}/docker-compose.yml"
 
   # --build: both services build ON the NAS (this Mac is arm64, the QNAP
-  # x86_64). This picks up requirements.txt and proxy/Dockerfile changes.
+  # x86_64). This picks up pyproject.toml/uv.lock and proxy/Dockerfile changes.
   echo "→ Building and starting on the NAS (first build takes a few minutes) …"
   nas_compose_up --build
 
   # …and then force-recreate the BACKEND specifically, which `up -d` will not do
   # on its own and must.
   #
-  # backend/Dockerfile only installs requirements.txt — the source is
+  # backend/Dockerfile only installs pyproject.toml/uv.lock — the source is
   # BIND-MOUNTED at /app, never baked into the image. So editing a .py file
   # changes neither the image nor the compose config, `up -d --build` finds
   # nothing to do, and Python goes on running the code it loaded at process

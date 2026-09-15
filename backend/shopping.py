@@ -152,7 +152,7 @@ _CATEGORIZE_SYSTEM = (
 
 
 async def _ai_categorize_items(items: list) -> dict:
-    """Ask Claude to sort ingredient names into SHOP_CATEGORIES. Returns a map
+    """Ask the AI to sort ingredient names into SHOP_CATEGORIES. Returns a map
     {item: category}; anything missing/invalid falls back to the keyword matcher.
     Returns {} (all-fallback at the call site) when no API key is set."""
     uniq = list(dict.fromkeys(i.strip() for i in items if i and i.strip()))

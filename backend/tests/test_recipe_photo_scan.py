@@ -38,7 +38,7 @@ def captured_ai(monkeypatch):
         calls.append({"max_tokens": max_tokens, "action": action})
         return DRAFT
 
-    monkeypatch.setattr(ai, "ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setattr(ai, "OPENROUTER_API_KEY", "sk-test")
     monkeypatch.setattr(ai, "complete", fake_complete)
     return calls
 

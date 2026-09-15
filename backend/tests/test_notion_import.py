@@ -54,7 +54,7 @@ def test_import_real_notion_tree_screenshot_recipe(client, monkeypatch):
     page per level, and a recipe page that is just an embedded screenshot living
     in a companion folder. The recipe must import (via vision); index pages must
     be skipped; the 'No recipe pages found' error must not fire."""
-    monkeypatch.setattr(ai, "ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setattr(ai, "OPENROUTER_API_KEY", "sk-test")
 
     async def fake_complete(system, messages, max_tokens, *, action, timeout=45):
         content = messages[0]["content"]
@@ -87,7 +87,7 @@ def test_import_real_notion_tree_screenshot_recipe(client, monkeypatch):
 
 def test_import_handles_nested_part_zip(client, monkeypatch):
     """Large Notion exports arrive as a zip-of-zips — the importer must recurse."""
-    monkeypatch.setattr(ai, "ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setattr(ai, "OPENROUTER_API_KEY", "sk-test")
 
     async def fake_complete(system, messages, max_tokens, *, action, timeout=45):
         return json.dumps({"name": "Nested", "ingredients": [{"item": "egg", "amount": "1", "unit": ""}],
@@ -109,7 +109,7 @@ def test_import_handles_nested_part_zip(client, monkeypatch):
 
 
 def test_import_routes_screenshot_to_vision_and_keeps_photo(client, monkeypatch):
-    monkeypatch.setattr(ai, "ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setattr(ai, "OPENROUTER_API_KEY", "sk-test")
     seen = []
 
     async def fake_complete(system, messages, max_tokens, *, action, timeout=45):

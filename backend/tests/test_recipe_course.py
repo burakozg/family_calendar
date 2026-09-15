@@ -84,7 +84,7 @@ def test_classify_courses_only_targets_missing(client, monkeypatch):
 
 
 def test_no_key_classify_falls_back_to_keywords(client):
-    # conftest leaves ANTHROPIC_API_KEY empty → complete_or_none returns None.
+    # conftest leaves MISTRAL_API_KEY/OPENROUTER_API_KEY empty → complete_or_none returns None.
     client.post("/recipes", json={"id": "nk", "name": "Lentil Soup"})
     r = client.post("/recipes/classify-courses", json={})
     assert r.json()["count"] >= 1

@@ -9,7 +9,7 @@ setup in [HOME_HTTPS_SETUP.md](HOME_HTTPS_SETUP.md).
 | You changed | Do this |
 |---|---|
 | Python / HTML | `./deploy` |
-| `backend/requirements.txt` | `./deploy` |
+| `backend/pyproject.toml` / `uv.lock` | `./deploy` |
 | a secret in `.env` | `./deploy` |
 | `docker-compose.nas.yml` | `./deploy` |
 | the `Caddyfile` | `./deploy proxy` |

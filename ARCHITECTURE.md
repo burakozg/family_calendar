@@ -17,7 +17,7 @@ a battery-powered e-ink device. There is no database and no build step.
   └───────────┘          │                                            │
                          │  /display-data ──► cache/display.json      │
   ┌───────────┐  poll    │                                            │
-  │ Inky Frame│◄────────►│  /meals/suggest ──► Anthropic API          │
+  │ Inky Frame│◄────────►│  /meals/suggest ──► AI provider API        │
   │ Pico 2 W  │          │                                            │
   └───────────┘          └──────────────────────────────────────────┘
                                           │
@@ -190,8 +190,8 @@ comment keeps connections alive, and disconnected/full queues are pruned. The
 Inky Frame does **not** use SSE — it polls.
 
 ### AI meal planning (two steps)
-Meal planning is a two-step conversation with Claude (the app-wide `AI_MODEL`,
-currently `claude-sonnet-4-6`), driven
+Meal planning is a two-step conversation with an LLM (the app-wide `AI_MODEL`,
+currently `qwen/qwen3-vl-235b-a22b-instruct` via OpenRouter), driven
 by three prompts stored in `settings.mealPlanner` (editable in the admin
 Settings page, with sensible built-in defaults — see `DEFAULT_*` constants and
 `_meal_prompts()`):
@@ -260,7 +260,7 @@ The shopping list is meant to be used **at the grocery store**, but the NAS is
 LAN-only and intentionally not exposed to the internet. So an optional tiny
 **relay service** (`shopping-relay/`, its own FastAPI + flat-JSON app, deployed
 to a PaaS like Fly.io) acts as the one internet-facing piece. The dataflow is
-**outbound-only** from the NAS — exactly like its Anthropic calls:
+**outbound-only** from the NAS — exactly like its AI provider calls:
 
 - `publish_shopping()` on the NAS POSTs `{week, start, days, have, extras}` to the
   relay's `POST /publish`, authenticated with `SHOP_RELAY_PUBLISH_TOKEN`. The

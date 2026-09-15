@@ -73,7 +73,7 @@ def ai_reply(monkeypatch):
             raise box["reply"]
         return box["reply"]
 
-    monkeypatch.setattr(ai, "ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setattr(ai, "OPENROUTER_API_KEY", "sk-test")
     monkeypatch.setattr(ai, "complete", fake)
     return box
 

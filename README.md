@@ -63,9 +63,9 @@ Highlights only — `git log` is the full history.
 ## Requirements
 
 - Docker + Docker Compose (server side)
-- An Anthropic API key (used by the AI features: meal planning, recipe
-  extraction/import, unit normalization, and shopping-aisle tagging — the
-  calendar itself works without it)
+- A Mistral or OpenRouter API key (used by the AI features: meal planning,
+  recipe extraction/import, unit normalization, and shopping-aisle tagging —
+  the calendar itself works without it; only open-weight models are used)
 - A Pimoroni Inky Frame 7.3" with a Raspberry Pi Pico 2 W (optional — the web UI works without hardware)
 
 ## Running the server
@@ -73,7 +73,7 @@ Highlights only — `git log` is the full history.
 1. Create a `.env` file in the project root (template: `.env.example`):
 
    ```
-   ANTHROPIC_API_KEY=sk-ant-...
+   MISTRAL_API_KEY=...
    # Optional — cloud relay: shopping list at the store + add events from anywhere (see shopping-relay/):
    # SHOP_RELAY_URL=https://your-relay.fly.dev
    # SHOP_RELAY_PUBLISH_TOKEN=...
@@ -88,7 +88,7 @@ Highlights only — `git log` is the full history.
    ```
 
    This builds a small image (`backend/Dockerfile`: Python + the pinned
-   dependencies from `backend/requirements.txt`) and runs it hardened:
+   dependencies from `backend/pyproject.toml` + `uv.lock`) and runs it hardened:
    non-root, read-only root filesystem (only `data/` is writable), no
    privilege escalation, bounded memory. Code and data stay bind-mounted,
    so edits remain live.
@@ -96,7 +96,7 @@ Highlights only — `git log` is the full history.
    The container runs as UID:GID `1000:1000` by default — make sure `data/`
    is writable by that user (`chown -R 1000:1000 data/`), or set `APP_UID` /
    `APP_GID` in `.env` to the owner of `data/`. After changing
-   `backend/requirements.txt`, rebuild with `docker compose up -d --build`.
+   `backend/pyproject.toml` (or `uv.lock`), rebuild with `docker compose up -d --build`.
 
 3. Open the UIs:
 
@@ -277,7 +277,7 @@ other vault-writing project in this ecosystem carries a copy of).
 ## Tests
 
 `./run-tests.sh` runs the backend suite (pytest; fast, no network). Install
-dev deps first: `pip install -r backend/requirements.txt -r backend/requirements-dev.txt`.
+dev deps first: `cd backend && uv sync`.
 
 ## ⚠️ Security note
 

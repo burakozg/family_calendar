@@ -40,8 +40,6 @@ services:
     # Without them the backend simply never starts those loops. Pull fresh data from
     # the NAS on demand instead:  ./deploy data-pull
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost}

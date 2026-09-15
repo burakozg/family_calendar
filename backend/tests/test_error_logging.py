@@ -60,5 +60,5 @@ def test_httpexception_is_untouched(client):
     resp = client.post("/meals/plan/generate", json={"weekSummary": ""})
 
     assert resp.status_code == 500                      # ProviderNotConfigured
-    assert "ANTHROPIC_API_KEY" in resp.json()["detail"]  # the real cause, surfaced
+    assert "OPENROUTER_API_KEY" in resp.json()["detail"]  # the real cause, surfaced
     assert len(activity_log.read_logs(category="system", q="unhandled", limit=1000)) == before

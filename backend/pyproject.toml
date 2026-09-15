@@ -1,0 +1,33 @@
+[project]
+name = "family-calendar-backend"
+version = "0.1.0"
+description = "Self-hosted family calendar backend: FastAPI app, meal planning, e-ink display feed"
+requires-python = ">=3.11,<3.12"
+license = { text = "MIT" }
+
+dependencies = [
+    "fastapi>=0.139.0",
+    "uvicorn>=0.50.0",
+    "httpx>=0.28.1",
+    "python-dotenv>=1.2.2",
+    "icalendar>=7.2.0",
+    "python-dateutil>=2.9.0.post0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    # A hang here is not hypothetical: the suite intermittently wedges instead
+    # of failing, which is unreadable in CI and wedges the status collector.
+    # With a timeout the hang becomes a failure that names the test.
+    "pytest-timeout>=2.4.0",
+]
+
+[tool.uv]
+# This backend is a flat collection of runtime scripts (main.py, ai.py, ...),
+# not an importable package — nothing here is ever `pip install`-ed or
+# published. Code stays bind-mounted into the container at runtime (see
+# Dockerfile/docker-compose.yml); the image only needs the dependency set.
+# Telling uv not to build/install a project avoids it trying (and failing) to
+# discover a package layout that doesn't exist.
+package = false

@@ -3,12 +3,13 @@ AI feature uses (meals, recipes, shopping). The household picks two models, not 
 `settings.ai.visionModel` for requests that carry an image and `settings.ai.model` for
 everything else — routed automatically from each request's own content, so a new
 image-sending caller cannot be pointed at a text-only model by forgetting a flag.
-Anthropic, OpenAI and Mistral are supported directly, plus
-OpenRouter as a gateway to everything else; the model registry below (name/version
-+ relative cost tier + `vision`) is the single source of truth for the admin pickers.
+Only open-weight models are offered: Mistral is supported directly, plus
+OpenRouter as a gateway to everything else (Qwen, DeepSeek, …); the model registry
+below (name/version + relative cost tier + `vision`) is the single source of truth
+for the admin pickers. Anthropic and OpenAI are deliberately not supported, direct
+or via OpenRouter — this app only ever selects open-weight models.
 
-Model list current as of 2026-08 — Claude figures from the claude-api reference,
-OpenAI figures from platform.openai.com pricing, Mistral from mistral.ai/pricing/api,
+Model list current as of 2026-08 — Mistral figures from mistral.ai/pricing/api,
 OpenRouter from its /api/v1/models listing.
 `cost` is a 1–4 relative tier (rendered as $–$$$$), not a price."""
 import os
@@ -18,14 +19,13 @@ from fastapi import HTTPException
 
 import ai_usage
 from activity_log import log_event
-from config import AI_MODEL, ANTHROPIC_API_KEY
+from config import AI_MODEL
 from storage import read_settings
 
-OPENAI_API_KEY     = os.getenv("OPENAI_API_KEY", "").strip()
 MISTRAL_API_KEY    = os.getenv("MISTRAL_API_KEY", "").strip()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 
-PROVIDERS = ("anthropic", "openai", "mistral", "openrouter")
+PROVIDERS = ("mistral", "openrouter")
 
 # provider, label (name + version), relative cost tier (1=cheapest … 4=priciest),
 # `vision` (accepts image input), and optional `recVision` / `recText` — a short
@@ -39,7 +39,8 @@ PROVIDERS = ("anthropic", "openai", "mistral", "openrouter")
 # a rule about the whole registry; it is now structural — selected_model refuses to
 # return a non-vision row for the vision role, whatever settings say — which is what
 # lets text-only models live here at all.
-# Frontier/overkill tiers (e.g. Claude Fable 5, GPT-5 pro) are deliberately left
+# Only open-weight models are offered here — no Anthropic or OpenAI, direct or
+# fronted through OpenRouter. Frontier/overkill tiers are also deliberately left
 # out: meal planning + recipe reading don't need them.
 # Mistral ids use the `-latest` aliases (mistral-large-latest → Large 3 today),
 # so the picker follows Mistral's own version rollovers.
@@ -58,25 +59,6 @@ PROVIDERS = ("anthropic", "openai", "mistral", "openrouter")
 #     `reasoning` and returned empty `content` on a prompt this size, and the newer
 #     rows are untested here. See extract_text() for what that failure looks like.
 AI_MODELS = [
-    {"id": "claude-haiku-4-5",     "provider": "anthropic", "label": "Claude Haiku 4.5",   "cost": 1,
-     "vision": True, "recVision": "cheap, reads a recipe photo well",
-     "recText": "cheap, and plans a week correctly"},
-    {"id": "claude-sonnet-4-6",    "provider": "anthropic", "label": "Claude Sonnet 4.6",  "cost": 2,
-     "vision": True, "recVision": "best all-round (the app default)",
-     "recText": "best all-round (the app default)"},
-    {"id": "claude-sonnet-5",      "provider": "anthropic", "label": "Claude Sonnet 5",    "cost": 2,
-     "vision": True},
-    {"id": "claude-opus-4-8",      "provider": "anthropic", "label": "Claude Opus 4.8",    "cost": 3,
-     "vision": True},
-    {"id": "gpt-5.4-nano",         "provider": "openai",    "label": "GPT-5.4 nano",       "cost": 1,
-     "vision": True},
-    {"id": "gpt-5.4-mini",         "provider": "openai",    "label": "GPT-5.4 mini",       "cost": 1,
-     "vision": True, "recVision": "best value on an OpenAI key",
-     "recText": "best value on an OpenAI key"},
-    {"id": "gpt-5.4",              "provider": "openai",    "label": "GPT-5.4",            "cost": 2,
-     "vision": True},
-    {"id": "gpt-5.5",              "provider": "openai",    "label": "GPT-5.5",            "cost": 3,
-     "vision": True},
     {"id": "ministral-14b-latest", "provider": "mistral",   "label": "Ministral 3 14B",    "cost": 1,
      "vision": True},
     {"id": "mistral-small-latest", "provider": "mistral",   "label": "Mistral Small 4",    "cost": 1,
@@ -86,10 +68,6 @@ AI_MODELS = [
      "recText": "most capability for the money"},
     {"id": "mistral-medium-latest", "provider": "mistral",  "label": "Mistral Medium 3.5", "cost": 2,
      "vision": True},
-    {"id": "anthropic/claude-sonnet-4.6", "provider": "openrouter",
-     "label": "Claude Sonnet 4.6 (OpenRouter)",     "cost": 2, "vision": True,
-     "recVision": "the app default, on one shared key",
-     "recText": "the app default, on one shared key"},
     {"id": "qwen/qwen3-vl-30b-a3b-instruct", "provider": "openrouter",
      "label": "Qwen3 VL 30B (OpenRouter)",          "cost": 1, "vision": True},
     {"id": "qwen/qwen3-vl-235b-a22b-instruct", "provider": "openrouter",
@@ -115,13 +93,14 @@ AI_MODELS = [
      "recText": "cheapest; best at the event rules"},
 ]
 _BY_ID = {m["id"]: m for m in AI_MODELS}
-DEFAULT_MODEL_ID = AI_MODEL   # the app's historical default (Claude Sonnet 4.6)
+DEFAULT_MODEL_ID = AI_MODEL   # the app's default (Qwen3 VL 235B via OpenRouter)
 ROLES = ("vision", "text")
 
 
 def _has_image(messages: list) -> bool:
-    """Does this request carry an image? Reads the Anthropic-shaped content blocks the
-    callers build, before build_body translates them to each provider's format."""
+    """Does this request carry an image? Reads the app's internal content-block
+    shape the callers build, before build_body translates them to each provider's
+    format."""
     return any(isinstance(m.get("content"), list)
                and any(isinstance(b, dict) and b.get("type") == "image" for b in m["content"])
                for m in (messages or []))
@@ -163,13 +142,11 @@ def selected_models() -> dict:
 def _api_key(provider: str) -> str:
     """Read at call time (not import time) so the module globals stay the single
     place a key lives — and stay patchable in tests."""
-    return {"openai": OPENAI_API_KEY, "mistral": MISTRAL_API_KEY,
-            "openrouter": OPENROUTER_API_KEY}.get(provider, ANTHROPIC_API_KEY)
+    return {"mistral": MISTRAL_API_KEY, "openrouter": OPENROUTER_API_KEY}.get(provider, "")
 
 
 def _key_env(provider: str) -> str:
-    return {"openai": "OPENAI_API_KEY", "mistral": "MISTRAL_API_KEY",
-            "openrouter": "OPENROUTER_API_KEY"}.get(provider, "ANTHROPIC_API_KEY")
+    return {"mistral": "MISTRAL_API_KEY", "openrouter": "OPENROUTER_API_KEY"}.get(provider, "")
 
 
 def provider_ready(provider: str) -> bool:
@@ -197,10 +174,9 @@ def providers_status() -> dict:
 
 
 # ── Provider request/response shaping ─────────────────────────────────────────
-# Everything except Anthropic speaks the OpenAI Chat Completions shape with bearer
-# auth; only the host (and two body details, see build_body) differ.
+# Both remaining providers speak the same Chat Completions wire shape with
+# bearer auth; only the host (and one body detail, see build_body) differ.
 CHAT_COMPLETIONS_URL = {
-    "openai":     "https://api.openai.com/v1/chat/completions",
     "mistral":    "https://api.mistral.ai/v1/chat/completions",
     "openrouter": "https://openrouter.ai/api/v1/chat/completions",
 }
@@ -208,21 +184,18 @@ CHAT_COMPLETIONS_URL = {
 
 def _endpoint(model: dict):
     provider = model["provider"]
-    url = CHAT_COMPLETIONS_URL.get(provider)
-    if url:
-        headers = {"Authorization": f"Bearer {_api_key(provider)}", "content-type": "application/json"}
-        if provider == "openrouter":
-            # Attribution OpenRouter asks callers to send; affects only how the
-            # request is labelled on their dashboard, never routing or billing.
-            headers["X-Title"] = "Family Calendar"
-        return (url, headers)
-    return ("https://api.anthropic.com/v1/messages",
-            {"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"})
+    url = CHAT_COMPLETIONS_URL[provider]
+    headers = {"Authorization": f"Bearer {_api_key(provider)}", "content-type": "application/json"}
+    if provider == "openrouter":
+        # Attribution OpenRouter asks callers to send; affects only how the
+        # request is labelled on their dashboard, never routing or billing.
+        headers["X-Title"] = "Family Calendar"
+    return (url, headers)
 
 
-def _openai_messages(system: str, messages: list, *, image_as_url_string: bool = False) -> list:
-    """Translate the Anthropic-shaped system+messages (text and base64 image
-    blocks) into OpenAI Chat Completions messages. Mistral takes the same shape
+def _chat_messages(system: str, messages: list, *, image_as_url_string: bool = False) -> list:
+    """Translate the app's internal system+messages (text and base64 image
+    blocks) into Chat Completions messages. Mistral takes the same shape
     except `image_url` is the data URL itself, not an {"url": …} object."""
     out = [{"role": "system", "content": system}] if system else []
     for m in messages:
@@ -246,15 +219,10 @@ def _openai_messages(system: str, messages: list, *, image_as_url_string: bool =
 
 def build_body(model: dict, system: str, messages: list, max_tokens: int) -> dict:
     provider = model["provider"]
-    if provider not in CHAT_COMPLETIONS_URL:
-        return {"model": model["id"], "max_tokens": max_tokens, "system": system, "messages": messages}
-    # The OpenAI-shaped providers differ in exactly two details:
-    #   - GPT-5 family wants `max_completion_tokens` (not `max_tokens`); no temperature.
-    #     OpenRouter normalizes on `max_tokens` for every model it fronts, GPT-5 included.
-    #   - Mistral wants `image_url` to be the data URL string, not an {"url": …} object.
-    tokens_key = "max_completion_tokens" if provider == "openai" else "max_tokens"
-    body = {"model": model["id"], tokens_key: max_tokens,
-            "messages": _openai_messages(system, messages, image_as_url_string=provider == "mistral")}
+    # Mistral and OpenRouter differ in exactly one body detail: Mistral wants
+    # `image_url` to be the data URL string, not an {"url": …} object.
+    body = {"model": model["id"], "max_tokens": max_tokens,
+            "messages": _chat_messages(system, messages, image_as_url_string=provider == "mistral")}
     if provider == "openrouter":
         # Reasoning tokens are billed as output and share the max_tokens budget with
         # the answer — and every call this app makes wants strict JSON, never a
@@ -270,19 +238,17 @@ def build_body(model: dict, system: str, messages: list, max_tokens: int) -> dic
 
 
 def extract_text(provider: str, result: dict) -> str:
-    if provider in CHAT_COMPLETIONS_URL:
-        content = ((result.get("choices") or [{}])[0].get("message") or {}).get("content")
-        if isinstance(content, list):
-            # Mistral's hybrid/reasoning models answer in chunks (thinking + text);
-            # only the text chunks are the answer.
-            return "".join(c.get("text", "") for c in content if c.get("type") == "text")
-        return content or ""
-    return "".join(b["text"] for b in result.get("content", []) if b.get("type") == "text")
+    content = ((result.get("choices") or [{}])[0].get("message") or {}).get("content")
+    if isinstance(content, list):
+        # Mistral's hybrid/reasoning models answer in chunks (thinking + text);
+        # only the text chunks are the answer.
+        return "".join(c.get("text", "") for c in content if c.get("type") == "text")
+    return content or ""
 
 
 def _error_message(result: dict) -> str:
-    """Human-readable error from a provider error body — Anthropic/OpenAI/OpenRouter
-    use {"error": {"message": ...}}, Mistral a top-level "message" or "detail";
+    """Human-readable error from a provider error body — OpenRouter uses
+    {"error": {"message": ...}}, Mistral a top-level "message" or "detail";
     truncated so it's safe to surface/log."""
     err = result.get("error")
     if isinstance(err, dict):

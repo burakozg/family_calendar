@@ -6,7 +6,10 @@ import sys
 import tempfile
 
 os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="famcal-test-")
-os.environ["ANTHROPIC_API_KEY"] = ""            # never call the AI from tests
+# Never call the AI from tests, even if the host environment happens to have a
+# key set (e.g. an ambient MISTRAL_API_KEY/OPENROUTER_API_KEY on the machine).
+os.environ["MISTRAL_API_KEY"] = ""
+os.environ["OPENROUTER_API_KEY"] = ""
 os.environ["ALLOWED_HOSTS"] = "localhost,testserver"
 os.environ.pop("SHOP_RELAY_URL", None)          # never talk to a relay
 os.environ.pop("SHOP_RELAY_PUBLISH_TOKEN", None)

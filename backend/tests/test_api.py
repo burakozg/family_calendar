@@ -102,7 +102,7 @@ def test_logs_since_filter(client):
 
 def test_ai_routes_fail_closed_without_key(client):
     r = client.post("/meals/plan/generate", json={"weekKey": "2026-40", "recent": [], "events": {}})
-    assert r.status_code == 500   # ANTHROPIC_API_KEY is unset in tests
+    assert r.status_code == 500   # OPENROUTER_API_KEY is unset in tests
 
 
 def test_ssrf_guard_ip_literals():

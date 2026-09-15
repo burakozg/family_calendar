@@ -25,7 +25,7 @@ unhandled-exception logger, settings/events routes, logs/display/SSE routes,
 the backup loop, startup, and static mounts.
 
 Run:  uvicorn main:app --host 0.0.0.0 --port 8000
-Deps: pip install -r requirements.txt
+Deps: uv sync (from backend/)
 """
 import asyncio
 import contextlib
@@ -53,7 +53,7 @@ from activity_log import (LOG_CATEGORIES, LOG_FILE, LOG_LEVELS, _current_who,
 from bus import _subscribers, broadcast
 from calendar_store import (_add_event, _add_recurring, _delete_by_id,
                             _delete_event, _delete_recurring)
-from config import AI_MODEL, ANTHROPIC_API_KEY
+from config import AI_MODEL
 from display_cache import _cache_warned, _recurring_occurrences, build_display_cache, fold_ascii
 from fsatomic import _atomic_write_text
 from recipes import _host_is_public

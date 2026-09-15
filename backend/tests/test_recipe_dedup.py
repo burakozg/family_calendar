@@ -155,7 +155,7 @@ def _notion_zip(title):
 
 
 def test_notion_import_queues_a_match_not_a_duplicate(client, monkeypatch):
-    monkeypatch.setattr(ai, "ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setattr(ai, "OPENROUTER_API_KEY", "sk-test")
 
     async def fake_complete(system, messages, max_tokens, *, action, timeout=45):
         return ('{"name":{"value":"Ratatouille","source":"extracted"},'

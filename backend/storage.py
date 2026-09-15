@@ -104,7 +104,8 @@ DEFAULTS = {
         # Two roles: `visionModel` runs anything that sends an image (recipe photo
         # scans), `model` runs everything else (weekly plan, text import, tagging).
         # A settings file with only `model` predates the split and uses it for both.
-        "ai": {"model": "claude-sonnet-4-6", "visionModel": "claude-sonnet-4-6"},
+        "ai": {"model": "deepseek/deepseek-v4-flash",
+               "visionModel": "qwen/qwen3-vl-235b-a22b-instruct"},
         "eventColors": {"birthday": "#ffff00", "recurring": "#000000", "holiday": "#ff0000",
                         "birthdayText": "#000000", "holidayText": "#ffffff"},
         "mealPlanner": {

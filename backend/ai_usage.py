@@ -8,7 +8,7 @@ update. An append needs no lock, and the raw lines stay useful for "what did tha
 recipe import actually cost?" in a way a bare counter never is.
 
 Tokens are always recorded. `cost` only when the provider reports one: OpenRouter
-returns the real credit cost of every call, while Anthropic/OpenAI/Mistral return
+returns the real credit cost of every call, while Mistral returns
 tokens alone. This app's model registry deliberately tracks relative cost tiers
 (1–4), not prices, so there is no price table here to multiply tokens by — one
 that silently went stale would be worse than no number at all. Tokens are the
@@ -32,18 +32,12 @@ TRIM_BYTES   = 1_000_000     # trim once the file grows past this
 
 def _usage_from(provider: str, result: dict) -> tuple[int, int, float | None]:
     """(input tokens, output tokens, cost or None) from a provider's `usage`.
-    Anthropic names them input_/output_tokens; everyone else uses the OpenAI
-    prompt_/completion_tokens. Verified against live responses from all four."""
+    Both remaining providers (Mistral, OpenRouter) use the same
+    prompt_/completion_tokens keys. Verified against live responses from both."""
     u = (result or {}).get("usage") or {}
     if not isinstance(u, dict):
         return (0, 0, None)
     cost = u.get("cost")                     # OpenRouter reports real credits spent
-    if provider == "anthropic":
-        # Cache reads/writes are billed input too. This app sends no cache_control
-        # blocks so they're 0 today, but summing keeps the number true if it ever does.
-        tin = (u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0) \
-            + (u.get("cache_read_input_tokens") or 0)
-        return (tin, u.get("output_tokens") or 0, cost if isinstance(cost, (int, float)) else None)
     return (u.get("prompt_tokens") or 0, u.get("completion_tokens") or 0,
             cost if isinstance(cost, (int, float)) else None)
 

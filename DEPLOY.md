@@ -59,7 +59,7 @@ replaced; `apply` handles that (see below).
 4. **`docker compose up -d --build`** over ssh: builds both images on the NAS
    (this Mac is arm64, the QNAP x86_64) and starts whatever changed.
 5. **Force-recreates the backend.** `up -d` will not, and must: `backend/Dockerfile`
-   only installs `requirements.txt`, so the source is bind-mounted and never in
+   only installs `pyproject.toml`/`uv.lock`, so the source is bind-mounted and never in
    the image. Edit a `.py` file and neither the image nor the compose config
    changes — `up -d` finds nothing to do and Python keeps running the code it
    loaded at start. This is the step the old "now press Restart" instruction was.
@@ -155,9 +155,9 @@ weekly duplicates).
 ./deploy apply         # .env is re-read because the backend is recreated
 ```
 
-**Changed `backend/requirements.txt`**
+**Changed `backend/pyproject.toml` or `uv.lock`**
 ```sh
-./deploy               # --build rebuilds the image for a requirements.txt change
+./deploy               # --build rebuilds the image for a dependency change
 ./deploy mac               # rebuilds locally
 ```
 

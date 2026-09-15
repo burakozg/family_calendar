@@ -13,16 +13,17 @@
 # installed globally or an env is already active. Set PYTHON to override.
 #
 # First-time setup:
-#   python3 -m venv .venv
-#   .venv/bin/pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+#   cd backend && uv sync
+# (creates backend/.venv; PYTHON=backend/.venv/bin/python or just cd backend
+# and run `uv run pytest` directly)
 set -eu
 
 cd "$(dirname "$0")"
 
 if [ -n "${PYTHON:-}" ]; then
   PY="$PYTHON"
-elif [ -x .venv/bin/python ]; then
-  PY=.venv/bin/python
+elif [ -x backend/.venv/bin/python ]; then
+  PY=backend/.venv/bin/python
 else
   PY=python3
 fi
