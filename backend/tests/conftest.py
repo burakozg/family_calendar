@@ -10,7 +10,7 @@ os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="famcal-test-")
 # key set (e.g. an ambient MISTRAL_API_KEY/OPENROUTER_API_KEY on the machine).
 os.environ["MISTRAL_API_KEY"] = ""
 os.environ["OPENROUTER_API_KEY"] = ""
-os.environ["ALLOWED_HOSTS"] = "localhost,testserver"
+os.environ["ALLOWED_HOSTS"] = "localhost,testserver,family-calendar.servers.zou"
 os.environ.pop("SHOP_RELAY_URL", None)          # never talk to a relay
 os.environ.pop("SHOP_RELAY_PUBLISH_TOKEN", None)
 # Mailsync: configured (so unit tests exercise it) but disabled in settings, so

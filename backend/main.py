@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import config  # noqa: F401  (loads .env first)
@@ -84,6 +84,14 @@ MAX_BODY = int(os.getenv("MAX_BODY", str(64 * 1024 * 1024)))
 # (comma-separated hostnames, no port) e.g. when a reverse proxy is added.
 ALLOWED_HOSTS = {h.strip().lower()
                  for h in os.getenv("ALLOWED_HOSTS", "localhost").split(",") if h.strip()}
+
+# admin.html's own, narrower gate — see the route below. ALLOWED_HOSTS above
+# deliberately permits any IP-literal Host (the Inky Frame needs that), which
+# would otherwise leave the admin console reachable unauthenticated by raw IP
+# regardless of the reverse-proxy login in front of ADMIN_HOST. Not read from
+# ALLOWED_HOSTS itself: that set can grow (e.g. a new DuckDNS-style hostname)
+# without ever meaning "and also serve admin.html there."
+ADMIN_HOST = os.getenv("ADMIN_HOST", "family-calendar.servers.zou").strip().lower()
 
 # When set (the relay app's origin, e.g. https://family-shopping-relay.fly.dev),
 # the relay app's "AI content" tab may embed this backend in an iframe; every
@@ -576,5 +584,18 @@ async def shutdown():
 app.mount("/recipe-photos", StaticFiles(directory=str(PHOTOS_DIR)), name="recipe-photos")
 
 frontend_dir = Path(__file__).parent.parent / "frontend"
+
+# Registered before the catch-all mount below so it wins the match — Starlette
+# tries routes in registration order, and a mount is just another route entry.
+# See ADMIN_HOST's own comment for why this can't just be another ALLOWED_HOSTS
+# entry: everything else this app serves is meant to keep answering by raw IP
+# (the Inky Frame, mainly), and this is the one page that must not.
+@app.get("/admin.html", include_in_schema=False)
+async def admin_page(request: Request) -> FileResponse:
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    if host != ADMIN_HOST:
+        raise HTTPException(status_code=404)
+    return FileResponse(frontend_dir / "admin.html")
+
 if frontend_dir.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="static")

@@ -102,8 +102,12 @@ pattern nor `\n` in a replacement, and would quietly produce a Caddyfile with no
 `ca` line at all: a production certificate issued while you believed you asked
 for staging, burning one of the five weekly slots.
 
-`BACKEND_ADDR` in the proxy's `.env` is written as `$APP_LAN_IP:$APP_PORT` — the
-app container's own qnet address, since the proxy sits on the same bridge.
+`BACKEND_ADDR` in the proxy's `.env` is written as `family-calendar:$APP_PORT`
+— by container name over `homelab-internal`, a bridge both containers also
+join (via `docker network connect`; see `docker-compose.nas.yml`), not the
+app container's qnet address. It was the qnet address until the
+`homelab-auth` central-login migration (2026-09); that address still exists
+(the Inky Frame needs it) but Caddy no longer uses it to reach the backend.
 
 ---
 

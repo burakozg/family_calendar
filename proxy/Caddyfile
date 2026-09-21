@@ -15,9 +15,25 @@
 # variable expands to nothing, leaving a bare `ca` that Caddy refuses to parse,
 # and env_file is only read when a container is CREATED, so a Restart won't
 # populate it.
+#
+# admin.html is blocked here on purpose — part of the central-login migration
+# (see homelab-auth/README.md). Everything else this domain serves (mobile.html,
+# display.html, recipes.html, and the API they share) stays exactly as open as
+# it always was; only the admin console moved behind a real login, reachable
+# at http://family-calendar.servers.zou/admin.html (LAN-only, via Traefik) —
+# leaving it reachable here too would make that gate pointless, since anyone
+# on the LAN could just keep using this hostname instead. 404, not a redirect
+# to the gated URL: this domain resolves publicly (see above), and a redirect
+# would advertise the internal hostname to anything that ever requests this
+# path here, including scanners with no reason to know it exists.
 {$DUCKDNS_DOMAIN} {
 	tls {
 		dns duckdns {env.DUCKDNS_TOKEN}
 	}
-	reverse_proxy {$BACKEND_ADDR}
+	handle /admin.html {
+		respond 404
+	}
+	handle {
+		reverse_proxy {$BACKEND_ADDR}
+	}
 }

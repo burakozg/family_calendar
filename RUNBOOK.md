@@ -249,4 +249,17 @@ LAN IP, so it reaches nothing from outside.
 - **The Mac is arm64, the QNAP is x86_64.** Each builds its own image from the same
   Dockerfile; don't try to cross-build and ship one.
 - **`10.0.0.2` unreachable** almost always means the app is *stopped*, not a
-  network problem.
+  network problem. The one exception, seen during the `homelab-auth`
+  migration (2026-09): a **fresh recreate can leave it completely
+  unreachable for a while even with the MAC pinned and the container
+  healthy** — not the classic "MAC changed" case above, a stale switch/ARP
+  entry from the interface reset itself. `docker ps` shows it running,
+  curl gets no response at all (not even a reset). Self-heals the moment the
+  container sends any outbound packet — force it immediately with
+  `docker exec family-calendar curl -s -m3 -o /dev/null http://<qnet gateway>/`
+  rather than waiting it out.
+- **`admin.html` returning 404 from a Host that should work** — check
+  `ADMIN_HOST` in the NAS's `.env` matches exactly what's in the request's
+  Host header (no port, lowercase); this is a separate, narrower check from
+  `ALLOWED_HOSTS` and a mismatch here doesn't affect anything else the app
+  serves. See the README's "Security" section.

@@ -81,6 +81,24 @@ services:
       - /share/Container/family-calendar/.env
     environment:
       - TZ=Europe/Stockholm
+    # PERMANENTLY dual-homed, unlike this app's sibling projects — part of
+    # the central-login migration (see homelab-auth/README.md), with one
+    # constraint they don't have: the physical Inky Frame e-ink display
+    # (_inkyframe/network_fetch.py, NAS_URL in its on-device secrets.py)
+    # fetches /display-data by raw IP over qnet, with no DNS and no way to
+    # reconfigure it remotely. That address cannot go away, so it stays
+    # below alongside homelab-internal (which Traefik and the Caddy proxy
+    # both reach this container over, via `docker network connect`).
+    #
+    # Because the qnet address stays, and this backend's own Host-header
+    # check deliberately allows any IP-literal Host (see ALLOWED_HOSTS /
+    # _host_allowed in main.py — also for the Inky Frame's sake), admin.html
+    # would otherwise still be reachable unauthenticated by IP, same as
+    # before this migration. main.py now additionally refuses to serve
+    # admin.html unless the Host header is exactly
+    # family-calendar.servers.zou — the one path Traefik's forwardAuth
+    # actually gates. Every other route (display-data included) is
+    # unaffected and stays reachable by IP exactly as it always was.
     networks:
       qnet-static-eth1-dc7e3a:
         ipv4_address: APP_IP_PLACEHOLDER
@@ -94,6 +112,7 @@ services:
         # it probes localhost from inside. `./deploy apply` fills this in from
         # APP_LAN_IP, so the real address stays out of this tracked file.
         mac_address: APP_MAC_PLACEHOLDER
+      homelab-internal: {}
 
   # ── HTTPS for the home app ──────────────────────────────────────────────────
   # Caddy terminates TLS so the relay PWA's "AI content" tab can iframe the home
@@ -136,4 +155,9 @@ volumes:
 
 networks:
   qnet-static-eth1-dc7e3a:
+    external: true
+  # Created once, shared with Traefik (and now the Caddy proxy too) via
+  # `docker network connect` — not created by this compose file, which only
+  # joins it. See homelab-auth/README.md.
+  homelab-internal:
     external: true

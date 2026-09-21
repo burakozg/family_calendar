@@ -449,6 +449,14 @@ The `frontend/` directory is mounted at `/` with `html=True`, so the same
 server that hosts the API also serves `admin.html`, `mobile.html`, and
 `display.html`. Clients derive their API base from `window.location.origin`.
 
+`admin.html` is the one exception to "just a static file": an explicit
+`@app.get("/admin.html")` route, registered before the mount so it wins the
+match, refuses to serve it unless the request's Host header exactly matches
+`ADMIN_HOST` (see "Security" in the README) — a narrower, separate check from
+the general `ALLOWED_HOSTS` guard, since that one deliberately permits any
+IP-literal Host for the Inky Frame's sake and would otherwise leave the admin
+console reachable by raw IP regardless of what sits in front of this app.
+
 ## Frontend (`frontend/`)
 
 Three standalone HTML files — no framework, no bundler. Each is self-contained

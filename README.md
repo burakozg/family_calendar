@@ -27,7 +27,7 @@ Everything runs on a home server (a QNAP NAS in this deployment) inside a single
 | `shopping-relay/` | Optional tiny cloud service hosting the phone app (aligned tab-for-tab with mobile.html): shopping list at the store, events, recipe import/scan + browse from anywhere, plus an **AI content** tab that embeds the full home app on the home network (see its README + `HOME_HTTPS_SETUP.md`) — all without exposing the NAS. |
 | `data/` | Runtime JSON data (settings, events, meals, recipes, shopping, display cache). Git-ignored. |
 | `docker-compose.yml` | Local run config. |
-| `docker-compose.nas.yml` | QNAP NAS run config (static IP on `qnet` bridge). |
+| `docker-compose.nas.yml` | QNAP NAS run config (static IP on `qnet`, plus `homelab-internal` for Traefik/Caddy — see "Deploying to the NAS" below). |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how the pieces fit together and the data
 model, **[DEPLOY.md](DEPLOY.md)** for the `./deploy` command reference, and
@@ -100,7 +100,9 @@ Highlights only — `git log` is the full history.
 
 3. Open the UIs:
 
-   - Admin:   `http://<host>:8000/admin.html`
+   - Admin:   `http://<host>:8000/admin.html` — only if `<host>` matches
+     `ADMIN_HOST` (see "Security" below); set it to match, or leave the
+     default and reach admin.html via a reverse proxy using that hostname.
    - Mobile:  `http://<host>:8000/mobile.html`
    - Display: `http://<host>:8000/display.html`
 
@@ -151,12 +153,19 @@ uses, not the app — stays in the file. Re-run `./deploy` whenever a secret cha
 the backend is recreated, which is what makes `env_file` take effect.
 
 `docker-compose.nas.yml` is **one compose project with two services**: the calendar
-backend on `10.0.0.2`, and a Caddy reverse proxy (`family-cal-proxy`) on
-`10.0.0.3` that gives the home app a real HTTPS certificate — both on the
-external `qnet` bridge, so the Inky Frame can reach the backend reliably and
-Caddy's `:443` can't collide with the QTS web UI. One `./deploy` covers both. The
-proxy's own `Dockerfile` / `Caddyfile` / `.env` live outside the synced tree and
-are shipped by `./deploy proxy`; see **[HOME_HTTPS_SETUP.md](HOME_HTTPS_SETUP.md)**.
+backend on `APP_LAN_IP` (the qnet bridge — kept permanently, unlike this
+fleet's other apps, because the physical Inky Frame fetches `/display-data`
+by that fixed raw IP with no DNS and no remote-update path), and a Caddy
+reverse proxy (`family-cal-proxy`) on `PROXY_LAN_IP`, also on qnet, so
+Caddy's `:443` can't collide with the QTS web UI. Both containers *also*
+join `homelab-internal`, a plain bridge shared with Traefik and this
+project's own Caddy proxy via `docker network connect` — that's how Caddy
+reaches the backend (`BACKEND_ADDR=family-calendar:$APP_PORT`, by container
+name, not the qnet IP) and how the `family-calendar.servers.zou` login-gated
+route reaches it too; see the sibling `homelab-auth` project for why. One
+`./deploy` covers both qnet-side containers. The proxy's own `Dockerfile` /
+`Caddyfile` / `.env` live outside the synced tree and are shipped by
+`./deploy proxy`; see **[HOME_HTTPS_SETUP.md](HOME_HTTPS_SETUP.md)**.
 
 Its `name: family-calendar` pins the compose project, and that name is
 load-bearing: compose derives `family-calendar_caddy_data` from it, and that volume
@@ -286,13 +295,26 @@ Secrets live only in git-ignored files: `.env` (API key — start from
 `_inkyframe/secrets.py.example`). Never commit real values; if either file
 has ever been shared or synced elsewhere, rotate the key/password.
 
-The backend has no authentication — only run it on a trusted LAN. It is same-origin only (no CORS), and a
+The backend has no authentication on `mobile.html`/`display.html`/the API —
+only run it on a trusted LAN. It is same-origin only (no CORS), and a
 Host-header allowlist blocks DNS-rebinding: direct IP access always works,
 while hostnames must be listed in `ALLOWED_HOSTS` (comma-separated; default
 `localhost`) — add your hostname there if you put a reverse proxy in front
 (the recommended HTTPS-on-LAN proxy setup for the relay app's AI content tab
 is documented in `HOME_HTTPS_SETUP.md`, together with `EMBED_ORIGIN`, which
 allows that one origin to iframe this app).
+
+`admin.html` is the one exception: it's served only when the request's Host
+header exactly matches `ADMIN_HOST` (default `family-calendar.servers.zou`;
+set via env, same shape as `ALLOWED_HOSTS` above) — every other Host,
+including a raw IP that `ALLOWED_HOSTS` would otherwise permit, gets a 404 as
+if the file didn't exist. This exists to sit behind a central login (see the sibling `homelab-auth`
+project, if you have it) without also requiring one for the family-facing
+pages or the Inky Frame's direct-IP fetch of `/display-data`, which must
+keep working unauthenticated. Running
+this generically with no reverse proxy in front? Set `ADMIN_HOST` to
+whatever Host you actually browse to (e.g. `localhost:8000`) or you'll get a
+404 on `/admin.html` too.
 
 The **shopping relay** (`shopping-relay/`) is the one component that is meant to
 face the internet, and it is token-gated. The NAS stays inbound-closed: it only

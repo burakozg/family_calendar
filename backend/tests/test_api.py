@@ -66,6 +66,24 @@ def test_host_allowed_unit():
     assert not main._host_allowed("")
 
 
+def test_admin_html_only_serves_the_gated_host(client):
+    """admin.html has its own, narrower gate than ALLOWED_HOSTS (see main.py's
+    ADMIN_HOST) — everything else stays reachable by any allowed Host,
+    including a raw IP, for the Inky Frame's sake; admin.html must not."""
+    ok = client.get("/admin.html", headers={"Host": main.ADMIN_HOST})
+    assert ok.status_code == 200
+
+    # "testserver" and a raw IP are both in ALLOWED_HOSTS / always IP-allowed
+    # (see test_host_allowlist above), so a 404 here is admin.html's own
+    # check firing, not the global Host-rebinding guard.
+    assert client.get("/admin.html").status_code == 404
+    assert client.get("/admin.html", headers={"Host": "192.168.1.7:8000"}).status_code == 404
+
+    # Everything else this app serves is unaffected by ADMIN_HOST.
+    assert client.get("/mobile.html", headers={"Host": "192.168.1.7:8000"}).status_code == 200
+    assert client.get("/display-data", headers={"Host": "192.168.1.7:8000"}).status_code == 200
+
+
 def test_meals_roundtrip(client):
     plan = [{"id": None, "name": "Tacos", "notes": ""}] * 7
     client.patch("/meals/plan", json={"weekKey": "2026-40", "meals": plan})

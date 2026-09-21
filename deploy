@@ -259,15 +259,18 @@ deploy_proxy() {
   fi
   nas_put "$caddyfile" "${PROXY_ROOT}/Caddyfile"
 
-  # BACKEND_ADDR is what the Caddyfile reverse-proxies to: the app container's
-  # own qnet address, since the proxy sits on the same bridge.
+  # BACKEND_ADDR is what the Caddyfile reverse-proxies to. By container name,
+  # not the backend's old qnet address: both containers now share
+  # homelab-internal (added for the central-login migration, see
+  # homelab-auth/README.md — the proxy joined it via `docker network
+  # connect`), which has Docker's embedded DNS, unlike the macvlan.
   echo "→ Writing ${PROXY_ROOT}/.env (mode 600) …"
   local envfile
   envfile=$(mktemp -t fc-proxy-env)
   cat > "$envfile" <<EOF
 DUCKDNS_DOMAIN=${domain}
 DUCKDNS_TOKEN=${token}
-BACKEND_ADDR=${APP_LAN_IP}:${APP_PORT}
+BACKEND_ADDR=family-calendar:${APP_PORT}
 EOF
   nas_put "$envfile" "${PROXY_ROOT}/.env" 600
   rm -f "$envfile"
@@ -287,9 +290,16 @@ EOF
   # This used to end at "go press Restart in Container Station". It doesn't have
   # to any more.
   echo "→ Rebuilding and restarting the proxy …"
-  nas_ssh "cd '${NAS_APP_DIR}' && '${NAS_DOCKER_BIN}' compose up -d --build family-cal-proxy" \
+  # NAS_DOCKER_ENV (DOCKER_CONFIG=...) matters here, not just cosmetically:
+  # QNAP's docker wrapper unconditionally overwrites $HOME into a root-owned
+  # directory this account can't write to, and a `compose build` invocation
+  # touches it — without DOCKER_CONFIG pointing it elsewhere, this fails with
+  # "mkdir .../homes/deploy: permission denied" before docker does anything.
+  # Every other build/compose call in this script and deploy.lib.sh sets it;
+  # this pair didn't, which is a pre-existing gap, not something new here.
+  nas_ssh "mkdir -p ${NAS_DOCKER_CONFIG} && cd '${NAS_APP_DIR}' && ${NAS_DOCKER_ENV} '${NAS_DOCKER_BIN}' compose up -d --build family-cal-proxy" \
     || die "Couldn't rebuild the proxy."
-  nas_ssh "cd '${NAS_APP_DIR}' && '${NAS_DOCKER_BIN}' compose restart family-cal-proxy" \
+  nas_ssh "cd '${NAS_APP_DIR}' && ${NAS_DOCKER_ENV} '${NAS_DOCKER_BIN}' compose restart family-cal-proxy" \
     || die "Couldn't restart the proxy."
 
   echo
