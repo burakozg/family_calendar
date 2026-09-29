@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title id="page-title">Family Calendar — Tablet</title>
+<style>
+/* Wall-mounted tablet view (e.g. Galaxy Tab S10 Ultra). Unlike display.html
+   (a scaled-up mirror of the 800x480 Inky panel), this lays out natively for
+   a large landscape touchscreen: no fixed device box, no 6-colour e-ink
+   palette, no per-day event cap, real fonts. Also unlike display.html, this
+   page runs unattended 24/7 on an AMOLED screen, so it carries its own
+   dimming / pixel-drift / motion-wake logic that display.html has no need for.
+   No build step, no shared JS with the other frontends — same house style. */
+:root {
+  --bg:#050505; --panel:#101014; --panel2:#17171c; --line:#2a2a30;
+  --fg:#eee; --fg-dim:#8a8a90; --accent:#3a86ff; --red:#ff4d4d; --yellow:#ffd23f;
+  --radius:14px;
+}
+* { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+html,body { height:100%; }
+body {
+  background:var(--bg); color:var(--fg);
+  font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  overflow:hidden; height:100vh; user-select:none;
+}
+#stage {
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  padding:18px 22px; gap:12px;
+  transition:transform 60s linear;
+  will-change:transform;
+}
+#dimmer {
+  position:fixed; inset:0; background:#000; opacity:0; pointer-events:none;
+  transition:opacity 1.2s ease; z-index:50;
+}
+#dimmer.dim { opacity:.72; }
+#dimmer.black { opacity:1; }
+#ambient {
+  position:fixed; inset:0; z-index:51; display:none;
+  align-items:center; justify-content:center; flex-direction:column; gap:10px;
+  color:#444; text-align:center; pointer-events:none;
+}
+#ambient.show { display:flex; }
+#ambient .clock { font-size:64px; font-weight:300; letter-spacing:1px; }
+#ambient .next { font-size:16px; max-width:70vw; }
+#fshint {
+  position:fixed; left:50%; bottom:22px; transform:translateX(-50%);
+  background:rgba(0,0,0,.7); color:var(--fg-dim); font-size:13px;
+  padding:8px 16px; border-radius:20px; z-index:60; transition:opacity .4s;
+}
+#fshint.hide { opacity:0; pointer-events:none; }
+
+/* ── Header ─────────────────────────────────────────────────── */
+header { display:flex; align-items:baseline; justify-content:space-between; flex-shrink:0; }
+header .title { font-size:30px; font-weight:600; letter-spacing:.3px; }
+header .sub { display:flex; align-items:center; gap:10px; color:var(--fg-dim); font-size:15px; }
+#dot { width:9px; height:9px; border-radius:50%; background:#3ddc6a; animation:blink 2.4s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+#dot.off { background:var(--red); animation:none; }
+
+/* ── Legend chips ───────────────────────────────────────────── */
+.legend { display:flex; flex-wrap:wrap; gap:6px; }
+.leg { display:inline-flex; align-items:center; height:22px; padding:0 9px; border-radius:11px; font-size:12px; font-weight:600; }
+
+/* ── Calendar grid ──────────────────────────────────────────── */
+#view { flex:1; min-height:0; display:flex; flex-direction:column; }
+.weekdays { display:grid; grid-template-columns:repeat(7,1fr); gap:8px; padding-bottom:4px; flex-shrink:0; }
+.weekday { font-size:13px; font-weight:600; color:var(--fg-dim); text-align:center; text-transform:uppercase; letter-spacing:.5px; }
+.grid { flex:1; min-height:0; display:grid; grid-template-columns:repeat(7,1fr); grid-template-rows:repeat(4,1fr); gap:8px; }
+.cell {
+  background:var(--panel); border-radius:var(--radius); padding:8px 8px 6px;
+  display:flex; flex-direction:column; overflow:hidden; position:relative;
+  border:1px solid var(--line);
+}
+.cell.today { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
+.cell.past { opacity:.42; }
+.cell-top { display:flex; align-items:baseline; justify-content:space-between; flex-shrink:0; }
+.daynum { font-size:17px; font-weight:700; }
+.cell.holiday .daynum { color:var(--red); }
+.cell.today .daynum { color:var(--accent); }
+.monthlbl { font-size:11px; color:var(--fg-dim); }
+.evs { margin-top:5px; display:flex; flex-direction:column; gap:3px; overflow:hidden; min-height:0; }
+.ev { font-size:12px; line-height:1.25; padding:3px 6px; border-radius:6px; font-weight:600;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; gap:5px; align-items:center; }
+.ev .t { font-weight:400; opacity:.85; flex-shrink:0; }
+.ev .ic { width:13px; height:13px; flex-shrink:0; display:inline-flex; }
+.ev .ic svg { width:100%; height:100%; }
+.more { font-size:11px; color:var(--fg-dim); font-weight:600; margin-top:1px; }
+
+/* ── Meals screen ───────────────────────────────────────────── */
+.meals { flex:1; min-height:0; display:flex; gap:14px; }
+.mweek { width:220px; flex-shrink:0; display:flex; flex-direction:column; gap:6px; }
+.mrow { flex:1; background:var(--panel); border-radius:10px; padding:8px 12px; display:flex; flex-direction:column; justify-content:center; border:1px solid var(--line); }
+.mrow.past { opacity:.4; }
+.mrow.sel { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
+.mrow .d { font-size:12px; color:var(--fg-dim); font-weight:600; text-transform:uppercase; }
+.mrow.sel .d { color:var(--accent); }
+.mrow .n { font-size:15px; font-weight:600; margin-top:2px; }
+.recipe { flex:1; min-width:0; background:var(--panel); border-radius:var(--radius); padding:20px 26px; overflow:auto; border:1px solid var(--line); }
+.r-title { font-size:30px; font-weight:700; }
+.r-meta { display:inline-block; background:var(--panel2); color:var(--fg-dim); font-size:13px; padding:5px 10px; border-radius:8px; margin:10px 0; }
+.r-h { color:var(--accent); font-size:13px; font-weight:700; letter-spacing:.5px; margin:14px 0 6px; text-transform:uppercase; }
+.r-cols { display:grid; grid-template-columns:1fr 1fr; gap:0 20px; }
+.r-ing { font-size:14px; line-height:1.6; color:#ddd; }
+.r-steps { font-size:14px; line-height:1.6; color:#ddd; }
+.r-step { margin-bottom:6px; }
+.r-empty { font-size:22px; font-weight:600; color:var(--fg-dim); margin-top:10px; }
+
+/* ── Nav strip ──────────────────────────────────────────────── */
+nav { display:flex; gap:8px; flex-shrink:0; }
+nav button {
+  flex:1; background:var(--panel); border:1px solid var(--line); color:var(--fg-dim);
+  font-size:13px; font-weight:600; padding:12px 6px; border-radius:10px;
+  font-family:inherit; letter-spacing:.3px;
+}
+nav button.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+/* ── Day overlay (tap a cell) ───────────────────────────────── */
+#overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,.78); z-index:40;
+  display:none; align-items:center; justify-content:center; padding:40px;
+}
+#overlay.show { display:flex; }
+#overlay .box { background:var(--panel); border-radius:18px; padding:26px 30px; max-width:520px; width:100%; max-height:80vh; overflow:auto; border:1px solid var(--line); }
+#overlay .box h3 { font-size:22px; margin-bottom:14px; }
+#overlay .oev { padding:8px 12px; border-radius:8px; margin-bottom:6px; font-weight:600; display:flex; gap:8px; align-items:center; }
+#overlay .oev .t { font-weight:400; opacity:.85; }
+</style>
+</head>
+<body>
+
+<div id="dimmer"></div>
+<div id="ambient"><div class="clock" id="ambClock"></div><div class="next" id="ambNext"></div></div>
+<div id="fshint">Tap anywhere to enter fullscreen</div>
+
+<div id="overlay"><div class="box" id="overlayBox"></div></div>
+
+<div id="stage">
+  <header>
+    <div class="title" id="hdrTitle">Family Calendar</div>
+    <div class="sub"><span id="dot"></span><span id="hdrDate"></span></div>
+  </header>
+  <div class="legend" id="legend"></div>
+  <div id="view"></div>
+  <nav id="nav">
+    <button data-btn="a">&lt; 4 Weeks</button>
+    <button data-btn="b" class="active">This Month</button>
+    <button data-btn="c">4 Weeks &gt;</button>
+    <button data-btn="d">Today's Dinner</button>
+    <button data-btn="e">Tomorrow's Dinner</button>
+  </nav>
+</div>
+
+<script>
+const API = window.location.origin;
+const NS = 'http://www.w3.org/2000/svg';
+const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+let screen = 'calendar', weekOffset = 0, data = {};
+
+// ── SVG icons (same set as display.html; kept per-file, house style) ──
+function mkSvg(paths){ const s=document.createElementNS(NS,'svg'); s.setAttribute('viewBox','0 0 16 16'); s.setAttribute('fill','none');
+  paths.forEach(([d,a])=>{ const p=document.createElementNS(NS,'path'); p.setAttribute('d',d); Object.entries(a||{}).forEach(([k,v])=>p.setAttribute(k,v)); s.appendChild(p); }); return s; }
+const st=(d,w)=>[d,{stroke:'currentColor','stroke-width':w||'1.4','stroke-linecap':'round','stroke-linejoin':'round'}];
+const fi=d=>[d,{fill:'currentColor'}];
+const ICONS = {
+  trash:()=>mkSvg([fi('M5 3h6l.5 1.5H4.5L5 3zm-1.5 2h9l-.7 7H5.2L3.5 5zm3 2v4h1V7h-1zm2 0v4h1V7h-1z')]),
+  cake:()=>mkSvg([fi('M8 2c.4 0 .7.3.7.7V4H11a1 1 0 011 1v1.5H4V5a1 1 0 011-1h2.3V2.7C7.3 2.3 7.6 2 8 2zM3 8h10v1c0 .5-.6 1.2-1.8.8-.8-.3-1.3-.8-1.7-.8s-.9.5-1.7.8S6.4 9.5 5.8 9.8C4.6 10.2 4 9.5 4 9L3 8zm0 3.5h10V14H3v-2.5z')]),
+  football:()=>mkSvg([fi('M8 2a6 6 0 100 12A6 6 0 008 2zm0 1.5L10 5l-.8 2.5H6.8L6 5l2-1.5zm-3 5l1-1.5h4l1 1.5L8 12 5 8.5z')]),
+  swim:()=>mkSvg([st('M2 10c1.2 0 2-1 3-1s1.8 1 3 1 2-1 3-1 1.8 1 3 1'),st('M2 13c1.2 0 2-1 3-1s1.8 1 3 1 2-1 3-1 1.8 1 3 1'),st('M8 7V5'),st('M6.5 4a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0')]),
+  gym:()=>mkSvg([st('M2 8h2M12 8h2M4 8h8M4 6.5v3M12 6.5v3M6 5.5v5M10 5.5v5','1.5')]),
+  meeting:()=>mkSvg([st('M4 4h8a1 1 0 011 1v5a1 1 0 01-1 1H9l-2 2-2-2H4a1 1 0 01-1-1V5a1 1 0 011-1z','1.3')]),
+  doctor:()=>mkSvg([st('M8 2a3 3 0 100 6 3 3 0 000-6zM3 13c0-2.8 2.2-4.5 5-4.5S13 10.2 13 13','1.3'),st('M10 12h3M11.5 10.5v3','1.2')]),
+  school:()=>mkSvg([st('M8 2l6 3-6 3-6-3 6-3zm-4 5v4c0 1 1.8 2 4 2s4-1 4-2V7','1.3')]),
+  yoga:()=>mkSvg([st('M8 3a1.2 1.2 0 100 2.4A1.2 1.2 0 008 3zM5 7.5C5 6.7 6.3 6 8 6s3 .7 3 1.5M5.5 9.5L4 12M10.5 9.5L12 12M6 10h4','1.3')]),
+  travel:()=>mkSvg([st('M3 13l10-10M8 3h5v5','1.4')]),
+  bbq:()=>mkSvg([st('M3 6h10M5 6V4.5M8 6V4M11 6V4.5M6.5 9c0 2 .7 3.5 1.5 3.5S9.5 11 9.5 9M7.5 13h3','1.3')]),
+  date:()=>mkSvg([fi('M8 2C5.2 2 3 4.2 3 7c0 3.5 5 8 5 8s5-4.5 5-8c0-2.8-2.2-5-5-5zm0 6.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z')]),
+  star:()=>mkSvg([fi('M8 2l1.5 3.5L13 6l-2.5 2.5.6 3.5L8 10.5 4.9 12l.6-3.5L3 6l3.5-.5z')]),
+  music:()=>mkSvg([st('M6 12V4l7-1.5v8','1.3'),st('M4.5 14a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM11.5 12a1.5 1.5 0 100-3 1.5 1.5 0 000 3z','1.2')]),
+  run:()=>mkSvg([fi('M9 3a1 1 0 100 2 1 1 0 000-2z'),st('M6 5.5l-2 5M6 5.5l3 1 2-2.5','1.3'),st('M4 10.5l2 3M9 6.5l1 4-3 2','1.3')]),
+  beachvolley:()=>mkSvg([st('M8 2a6 6 0 100 12A6 6 0 008 2z','1.3'),st('M4 5c1.3.8 2.3 2 2.5 3.5S5.8 11 5 12','1.2'),st('M12 5c-1.3.8-2.3 2-2.5 3.5S9.2 11 10 12','1.2'),st('M2.5 8.5h11','1.2')]),
+  pizza:()=>mkSvg([st('M8 2L3 13h10L8 2z','1.3'),st('M5 10h6','1.2'),fi('M8 5.5a1 1 0 100 2 1 1 0 000-2')]),
+  beer:()=>mkSvg([st('M4 5h7v8a1 1 0 01-1 1H5a1 1 0 01-1-1V5z','1.3'),st('M11 7.5h1.5a1 1 0 010 3H11','1.3'),st('M4 8h7','1.2')]),
+  whisky:()=>mkSvg([st('M4.5 3h7l-.8 10H5.3L4.5 3z','1.3'),st('M5 7h6','1.2')]),
+  coffee:()=>mkSvg([st('M3 7h9v4a3 3 0 01-3 3H6a3 3 0 01-3-3V7z','1.3'),st('M12 8h1a1.5 1.5 0 010 3h-1','1.3'),st('M5.5 5c0-1 1-1.5 1-2.5','1.2'),st('M8.5 5c0-1 1-1.5 1-2.5','1.2')]),
+  cocktail:()=>mkSvg([st('M3 3h10L8 9v5','1.3'),st('M6 14h4','1.3')]),
+  car:()=>mkSvg([st('M3 10l1.5-3.5a1 1 0 01.9-.5h5.2a1 1 0 01.9.5L13 10v3H3v-3z','1.3'),st('M3 10h10','1.2'),fi('M5 12.5a1 1 0 100-2 1 1 0 000 2z'),fi('M11 12.5a1 1 0 100-2 1 1 0 000 2z')]),
+  broom:()=>mkSvg([st('M13 3L7 9','1.4'),st('M7 9L4 13.5','1.3'),st('M7 9L10 13.5','1.3'),st('M4 13.5L10 13.5','1.3'),st('M7 9.5V13.5','1'),st('M5.5 11.5L5 13.5','1'),st('M8.5 11.5L9 13.5','1')]),
+};
+function iconSvg(key){ return (ICONS[key]||ICONS.star)(); }
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ── Render dispatch ───────────────────────────────────────────
+function render(){
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.remove('active'));
+  const activeBtn = screen==='today' ? 'd' : screen==='tomorrow' ? 'e' : ({'-4':'a','0':'b','4':'c'}[String(weekOffset)]||'b');
+  const el = document.querySelector(`#nav button[data-btn="${activeBtn}"]`); if (el) el.classList.add('active');
+  document.getElementById('view').innerHTML = (screen==='calendar') ? renderCalendar() : renderMeals(screen);
+  document.querySelectorAll('.cell[data-date]').forEach(c=>c.addEventListener('click', ()=>openDay(c.dataset.date)));
+  document.getElementById('hdrTitle').textContent = data.title || (data.app_name || 'Family Calendar');
+  document.getElementById('hdrDate').textContent = data.today ? new Date(data.today+'T12:00').toLocaleDateString(undefined,{weekday:'long', month:'long', day:'numeric'}) : '';
+  renderLegend();
+}
+
+function renderLegend(){
+  const legend = data.legend || [];
+  const ec = data.event_colors || {};
+  document.getElementById('legend').innerHTML = legend.map(l => {
+    let bg = l.color, fg = l.text_color;
+    if (l.label === 'Birthday') { bg = ec.birthday || bg; fg = ec.birthdayText || fg; }
+    else if (l.label === 'Holiday') { bg = ec.holiday || bg; fg = ec.holidayText || fg; }
+    return `<span class="leg" style="background:${esc(bg)};color:${esc(fg)}">${esc(l.label)}</span>`;
+  }).join('');
+}
+
+function evStyle(e){
+  const ec = data.event_colors || {};
+  if (e.type==='birthday') return {bg: ec.birthday||'#ffff00', fg: ec.birthdayText||'#000'};
+  if (e.type==='holiday')  return {bg: ec.holiday||'#ff0000', fg: ec.holidayText||'#fff'};
+  return {bg: e.bg||'#333', fg: e.text_color||'#fff'};
+}
+
+function renderCalendar(){
+  const cells = data.cells || [];
+  let wk = DAYS.map(d=>`<div class="weekday">${d}</div>`).join('');
+
+  const MAX = 6;
+  let grid = cells.map(cell => {
+    const isToday = !!cell.today;
+    const isPast  = !isToday && (cell.date||'') < (data.today||'');
+    const evs = cell.events || [];
+    let cls = 'cell' + (isPast?' past':'') + (isToday?' today':'') + (cell.holiday?' holiday':'');
+
+    let evhtml = evs.slice(0,MAX).map(e => {
+      const {bg,fg} = evStyle(e);
+      const timeHtml = e.time ? `<span class="t">${esc(e.time)}</span>` : '';
+      const iconHtml = e.icon ? `<span class="ic">${iconSvg(e.icon).outerHTML}</span>` : '';
+      return `<div class="ev" style="background:${esc(bg)};color:${esc(fg)}">${iconHtml}${timeHtml}<span>${esc(e.label)}</span></div>`;
+    }).join('');
+    if (evs.length>MAX) evhtml += `<div class="more">+${evs.length-MAX} more</div>`;
+
+    const dayLabel = (cell.day||'') + (cell.month_short ? ' ' + cell.month_short : '');
+    return `<div class="${cls}" data-date="${esc(cell.date)}">
+      <div class="cell-top"><span class="daynum">${esc(dayLabel)}</span></div>
+      <div class="evs">${evhtml}</div>
+    </div>`;
+  }).join('');
+
+  return `<div class="weekdays">${wk}</div><div class="grid">${grid}</div>`;
+}
+
+function todayDowIndex(){
+  if (!data.today) return -1;
+  const dt = new Date(data.today+'T00:00');
+  return (dt.getDay()+6)%7;
+}
+
+function renderMeals(which){
+  const todayDow = todayDowIndex();
+  let weekPlan, selDow, pastCut, meal, prefix;
+  if (which==='tomorrow'){
+    meal = data.tomorrow_meal; prefix='(Tomorrow) ';
+    if (todayDow===6){ weekPlan = data.meal_plan_next||[]; selDow=0; pastCut=0; }
+    else { weekPlan = data.meal_plan||[]; selDow=todayDow+1; pastCut=todayDow; }
+  } else {
+    meal = data.today_meal; prefix='';
+    weekPlan = data.meal_plan||[]; selDow=todayDow; pastCut=todayDow;
+  }
+
+  let rows = '';
+  for (let i=0;i<7;i++){
+    const m = weekPlan[i] && typeof weekPlan[i]==='object' ? weekPlan[i] : {};
+    const name = m.name || '—';
+    const cls = 'mrow' + (i===selDow?' sel':'') + (i<pastCut?' past':'');
+    rows += `<div class="${cls}"><div class="d">${DAYS[i]}</div><div class="n">${esc(name)}</div></div>`;
+  }
+
+  return `<div class="meals"><div class="mweek">${rows}</div><div class="recipe">${renderRecipe(meal, prefix)}</div></div>`;
+}
+
+function renderRecipe(tm, prefix){
+  if (!tm) return `<div class="r-empty">${esc(prefix)}No dinner planned</div>`;
+  const meta = [];
+  if (tm.cuisine) meta.push(tm.cuisine);
+  const tot = (tm.prep_time_min||0)+(tm.cook_time_min||0);
+  if (tot) meta.push(`${tot} min`);
+  if (tm.difficulty) meta.push(`difficulty ${tm.difficulty}/5`);
+  if (tm.servings) meta.push(`serves ${tm.servings}`);
+
+  let html = `<div class="r-title">${esc(prefix)}${esc(tm.name||'')}</div>`;
+  if (meta.length) html += `<div class="r-meta">${esc(meta.join('  |  '))}</div>`;
+
+  const ings = tm.ingredients||[], steps = tm.steps||[];
+  if (!ings.length && !steps.length){
+    if (tm.notes) html += `<div class="r-ing">${esc(tm.notes)}</div>`;
+    return html;
+  }
+  if (ings.length){
+    const mid = Math.ceil(ings.length/2);
+    const col = arr => arr.map(g=>`<div class="r-ing">- ${esc(g)}</div>`).join('');
+    html += `<div class="r-h">Ingredients</div><div class="r-cols"><div>${col(ings.slice(0,mid))}</div><div>${col(ings.slice(mid))}</div></div>`;
+  }
+  if (steps.length){
+    html += `<div class="r-h">Method</div><div class="r-steps">` +
+      steps.map((s,i)=>`<div class="r-step">${i+1}. ${esc(s)}</div>`).join('') + `</div>`;
+  }
+  return html;
+}
+
+// ── Day overlay (read-only detail on tap) ──────────────────────
+function openDay(dateStr){
+  markPresence();
+  const cell = (data.cells||[]).find(c=>c.date===dateStr);
+  if (!cell) return;
+  const evs = cell.events || [];
+  const label = new Date(dateStr+'T12:00').toLocaleDateString(undefined,{weekday:'long', month:'long', day:'numeric'});
+  const body = evs.length ? evs.map(e=>{
+    const {bg,fg} = evStyle(e);
+    const timeHtml = e.time ? `<span class="t">${esc(e.time)}</span>` : '';
+    return `<div class="oev" style="background:${esc(bg)};color:${esc(fg)}">${timeHtml}<span>${esc(e.label)}</span></div>`;
+  }).join('') : '<div style="color:var(--fg-dim)">No events</div>';
+  document.getElementById('overlayBox').innerHTML = `<h3>${esc(label)}</h3>${body}`;
+  document.getElementById('overlay').classList.add('show');
+}
+document.getElementById('overlay').addEventListener('click', ()=>{
+  document.getElementById('overlay').classList.remove('show');
+});
+
+// ── Navigation ────────────────────────────────────────────────
+let idleReturnTimer = null;
+function scheduleIdleReturn(){
+  clearTimeout(idleReturnTimer);
+  idleReturnTimer = setTimeout(()=>{ if (screen!=='calendar' || weekOffset!==0) go('b'); }, 90000);
+}
+function go(btn){
+  if (btn==='a'){ screen='calendar'; weekOffset=-4; }
+  else if (btn==='b'){ screen='calendar'; weekOffset=0; }
+  else if (btn==='c'){ screen='calendar'; weekOffset=4; }
+  else if (btn==='d'){ screen='today'; weekOffset=0; }
+  else if (btn==='e'){ screen='tomorrow'; weekOffset=0; }
+  else return;
+  scheduleIdleReturn();
+  loadData();
+}
+document.getElementById('nav').addEventListener('click', e=>{
+  const b = e.target.closest('button'); if (b) go(b.dataset.btn);
+});
+document.addEventListener('keydown', e=>{
+  const k = e.key.toLowerCase();
+  if ('abcde'.includes(k)) go(k);
+  else if (e.key==='ArrowLeft') go('a');
+  else if (e.key==='ArrowRight') go('c');
+  else if (e.key==='Home') go('b');
+});
+
+// ── Data + live updates ─────────────────────────────────────────
+async function loadData(){
+  try {
+    const r = await fetch(`${API}/display-data?week_offset=${weekOffset}`);
+    data = await r.json();
+    document.getElementById('page-title').textContent = (data.app_name || 'Family Calendar') + ' — Tablet';
+    document.getElementById('dot').classList.remove('off');
+    render();
+  } catch(e){
+    document.getElementById('dot').classList.add('off');
+  }
+}
+function connect(){
+  const es = new EventSource(`${API}/stream`);
+  es.addEventListener('update', ()=>loadData());
+  es.onerror = ()=>{ document.getElementById('dot').classList.add('off'); setTimeout(connect,5000); };
+  es.addEventListener('connected', ()=>document.getElementById('dot').classList.remove('off'));
+}
+
+// Midnight rollover + a periodic safety refetch in case SSE dies silently.
+let lastKnownDate = new Date().toDateString();
+setInterval(()=>{
+  const now = new Date().toDateString();
+  if (now !== lastKnownDate){ lastKnownDate = now; weekOffset = 0; screen = 'calendar'; loadData(); }
+}, 60000);
+setInterval(loadData, 10*60000);
+
+// Reload once a day in the small hours to shed any long-run leak.
+(function scheduleDailyReload(){
+  const now = new Date();
+  const next = new Date(now); next.setHours(4,17,0,0);
+  if (next <= now) next.setDate(next.getDate()+1);
+  setTimeout(()=>location.reload(), next - now);
+})();
+
+loadData().then(connect);
+scheduleIdleReturn();
+
+// ── Ambient / burn-in protection ────────────────────────────────
+// AMOLED-friendly idle ladder driven by a single "last presence" timestamp,
+// fed by touch and (optionally) camera motion. No precedent elsewhere in
+// this repo — the Inky and display.html don't run unattended on AMOLED.
+const IDLE_DIM_MS = 5*60000;      // dim after 5 min of no presence
+const IDLE_AMBIENT_MS = 12*60000; // minimal clock-only view after 12 min
+const IDLE_BLACK_MS = 20*60000;   // fully black after 20 min
+let lastPresence = Date.now();
+
+function markPresence(){
+  lastPresence = Date.now();
+  document.getElementById('dimmer').classList.remove('dim','black');
+  document.getElementById('ambient').classList.remove('show');
+}
+document.addEventListener('touchstart', markPresence, {passive:true});
+document.addEventListener('pointerdown', markPresence);
+
+function updateAmbientClock(){
+  const el = document.getElementById('ambClock');
+  if (el) el.textContent = new Date().toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
+  const nextEl = document.getElementById('ambNext');
+  if (nextEl){
+    const cell = (data.cells||[]).find(c=>c.today);
+    const ev = cell && (cell.events||[])[0];
+    nextEl.textContent = ev ? ev.label : '';
+  }
+}
+setInterval(()=>{
+  const idle = Date.now() - lastPresence;
+  const dimmer = document.getElementById('dimmer');
+  const ambient = document.getElementById('ambient');
+  if (idle >= IDLE_BLACK_MS){
+    dimmer.classList.add('black'); dimmer.classList.remove('dim'); ambient.classList.remove('show');
+  } else if (idle >= IDLE_AMBIENT_MS){
+    dimmer.classList.remove('black','dim'); ambient.classList.add('show'); updateAmbientClock();
+  } else if (idle >= IDLE_DIM_MS){
+    dimmer.classList.add('dim'); dimmer.classList.remove('black'); ambient.classList.remove('show');
+  }
+}, 5000);
+
+// Pixel drift: nudge the whole layout within a small radius on a slow cycle
+// so no edge sits on fixed pixels for hours at a stretch.
+(function drift(){
+  const stage = document.getElementById('stage');
+  function tick(){
+    const dx = (Math.random()*16-8).toFixed(1);
+    const dy = (Math.random()*16-8).toFixed(1);
+    stage.style.transform = `translate(${dx}px, ${dy}px)`;
+  }
+  tick();
+  setInterval(tick, 90000);
+})();
+
+// Wake lock — keep the panel awake while this page is visible. Best-effort:
+// unsupported or denied silently falls back to Android's own "Stay awake".
+let wakeLock = null;
+async function requestWakeLock(){
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }
+  catch(e) { /* unsupported / denied — fine, Android "Stay awake" covers it */ }
+}
+document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible') requestWakeLock(); });
+requestWakeLock();
+
+// Fullscreen on first tap — removes Chrome's URL bar under screen pinning.
+// The hint disappears once fullscreen is granted or after first interaction.
+document.addEventListener('click', function goFullscreen(){
+  markPresence();
+  const hint = document.getElementById('fshint');
+  if (!document.fullscreenElement && document.documentElement.requestFullscreen){
+    document.documentElement.requestFullscreen().catch(()=>{});
+  }
+  if (hint) hint.classList.add('hide');
+}, {once:false});
+document.addEventListener('fullscreenchange', ()=>{
+  const hint = document.getElementById('fshint');
+  if (document.fullscreenElement && hint) hint.classList.add('hide');
+});
+
+// ── Motion module (optional; falls back silently to touch-only) ────────
+// Frames never leave the device and are never stored: a 64x48 canvas
+// frame-difference against the previous frame, thresholded, only ever
+// produces a boolean "something moved" that resets lastPresence.
+(function motion(){
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+  const W = 64, H = 48;
+  const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d', {willReadFrequently:true});
+  let prev = null;
+  navigator.mediaDevices.getUserMedia({video:{facingMode:'user', width:W, height:H}})
+    .then(stream => {
+      const video = document.createElement('video');
+      video.srcObject = stream; video.muted = true; video.playsInline = true; video.play().catch(()=>{});
+      setInterval(()=>{
+        if (video.readyState < 2) return;
+        try {
+          ctx.drawImage(video, 0, 0, W, H);
+          const frame = ctx.getImageData(0, 0, W, H).data;
+          if (prev){
+            let diff = 0;
+            for (let i=0;i<frame.length;i+=4){
+              diff += Math.abs(frame[i]-prev[i]) + Math.abs(frame[i+1]-prev[i+1]) + Math.abs(frame[i+2]-prev[i+2]);
+            }
+            if (diff / (W*H) > 12) markPresence();
+          }
+          prev = frame;
+        } catch(e) { /* transient decode error — skip this tick */ }
+      }, 500);
+    })
+    .catch(()=>{ /* denied or unavailable (e.g. non-secure origin) — touch-only */ });
+})();
+</script>
+</body>
+</html>

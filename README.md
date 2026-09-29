@@ -22,7 +22,8 @@ Everything runs on a home server (a QNAP NAS in this deployment) inside a single
 | `frontend/admin.html` | Full admin UI — manage members, events, birthdays, recurring items, meals, recipes. |
 | `frontend/mobile.html` | Phone-friendly UI for quick edits (incl. a Browse tab for the recipe library). |
 | `frontend/recipes.html` | Standalone recipe viewer — live filters (search, course, cuisine, time, rating) + detail. |
-| `frontend/display.html` | Browser version of the calendar view (live via SSE). |
+| `frontend/display.html` | Browser mirror of the Inky panel itself — fixed 800x480, 6-colour e-ink palette (for testing/previewing what the device will draw). |
+| `frontend/tablet.html` | Native large-screen display view for a wall tablet (e.g. Galaxy Tab S10 Ultra) — same data as the Inky, laid out for a big touchscreen instead of emulating the e-ink panel; see `TABLET_SETUP.md`. |
 | `_inkyframe/` | MicroPython firmware for the Pico 2 W + Inky Frame 7" hardware. |
 | `shopping-relay/` | Optional tiny cloud service hosting the phone app (aligned tab-for-tab with mobile.html): shopping list at the store, events, recipe import/scan + browse from anywhere, plus an **AI content** tab that embeds the full home app on the home network (see its README + `HOME_HTTPS_SETUP.md`) — all without exposing the NAS. |
 | `data/` | Runtime JSON data (settings, events, meals, recipes, shopping, display cache). Git-ignored. |
@@ -44,6 +45,9 @@ Highlights only — `git log` is the full history.
      initial release. If this ever falls badly out of date, delete it rather
      than half-fix it — a wrong shop window is worse than none. -->
 
+- Added `tablet.html`, a native display view for a wall tablet (e.g. Galaxy Tab S10
+  Ultra) — same calendar/meal data as the Inky, laid out for a large touchscreen with
+  a dark ambient mode for 24/7 AMOLED use; see `TABLET_SETUP.md`
 - Recipe editor flags near-duplicates however a recipe was entered, and a duplicate
   name can no longer overwrite an existing recipe ([`532596d`](../../commit/532596d))
 - Meal-kit sheets that arrive as one page are split into a main and a side, attributed
@@ -104,7 +108,8 @@ Highlights only — `git log` is the full history.
      `ADMIN_HOST` (see "Security" below); set it to match, or leave the
      default and reach admin.html via a reverse proxy using that hostname.
    - Mobile:  `http://<host>:8000/mobile.html`
-   - Display: `http://<host>:8000/display.html`
+   - Display: `http://<host>:8000/display.html` (Inky mirror)
+   - Tablet:  `http://<host>:8000/tablet.html` (wall tablet — see `TABLET_SETUP.md`)
 
    The frontends detect their API base from `window.location.origin`, so no
    configuration is needed as long as they're served by the backend.
@@ -295,7 +300,7 @@ Secrets live only in git-ignored files: `.env` (API key — start from
 `_inkyframe/secrets.py.example`). Never commit real values; if either file
 has ever been shared or synced elsewhere, rotate the key/password.
 
-The backend has no authentication on `mobile.html`/`display.html`/the API —
+The backend has no authentication on `mobile.html`/`display.html`/`tablet.html`/the API —
 only run it on a trusted LAN. It is same-origin only (no CORS), and a
 Host-header allowlist blocks DNS-rebinding: direct IP access always works,
 while hostnames must be listed in `ALLOWED_HOSTS` (comma-separated; default

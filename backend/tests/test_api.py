@@ -66,6 +66,12 @@ def test_host_allowed_unit():
     assert not main._host_allowed("")
 
 
+def test_root_redirects_to_mobile(client):
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code in (302, 307)
+    assert r.headers["location"] == "/mobile.html"
+
+
 def test_admin_html_only_serves_the_gated_host(client):
     """admin.html has its own, narrower gate than ALLOWED_HOSTS (see main.py's
     ADMIN_HOST) — everything else stays reachable by any allowed Host,
@@ -82,6 +88,14 @@ def test_admin_html_only_serves_the_gated_host(client):
     # Everything else this app serves is unaffected by ADMIN_HOST.
     assert client.get("/mobile.html", headers={"Host": "192.168.1.7:8000"}).status_code == 200
     assert client.get("/display-data", headers={"Host": "192.168.1.7:8000"}).status_code == 200
+
+
+def test_tablet_html_served_unauthenticated(client):
+    """Unlike admin.html, tablet.html is a read-only display surface — it must
+    stay reachable by any allowed Host, including a raw IP, same as display.html."""
+    r = client.get("/tablet.html", headers={"Host": "192.168.1.7:8000"})
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
 
 
 def test_meals_roundtrip(client):

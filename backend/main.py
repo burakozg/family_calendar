@@ -40,7 +40,13 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 
 import config  # noqa: F401  (loads .env first)
@@ -596,6 +602,15 @@ async def admin_page(request: Request) -> FileResponse:
     if host != ADMIN_HOST:
         raise HTTPException(status_code=404)
     return FileResponse(frontend_dir / "admin.html")
+
+@app.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
+    """There's no frontend/index.html — mobile.html is the closest thing to a
+    default page (the family-facing view), so land there instead of the 404
+    StaticFiles would otherwise give an exact "/" request. Registered before
+    the mount below for the same reason admin_page is: an explicit route
+    wins the match over a mount at the same path."""
+    return RedirectResponse(url="/mobile.html")
 
 if frontend_dir.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="static")

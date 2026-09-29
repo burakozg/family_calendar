@@ -446,8 +446,9 @@ harder to get subtly wrong than hooking every mutation call site, and at
 
 ### Static serving
 The `frontend/` directory is mounted at `/` with `html=True`, so the same
-server that hosts the API also serves `admin.html`, `mobile.html`, and
-`display.html`. Clients derive their API base from `window.location.origin`.
+server that hosts the API also serves `admin.html`, `mobile.html`,
+`display.html`, and `tablet.html`. Clients derive their API base from
+`window.location.origin`.
 
 `admin.html` is the one exception to "just a static file": an explicit
 `@app.get("/admin.html")` route, registered before the mount so it wins the
@@ -459,7 +460,7 @@ console reachable by raw IP regardless of what sits in front of this app.
 
 ## Frontend (`frontend/`)
 
-Three standalone HTML files — no framework, no bundler. Each is self-contained
+Four standalone HTML files — no framework, no bundler. Each is self-contained
 (inline CSS + vanilla JS) and talks to the backend over `fetch`.
 
 - **`admin.html`** — the full control panel (largest file). Manage every data
@@ -480,9 +481,24 @@ Three standalone HTML files — no framework, no bundler. Each is self-contained
   names, course/cuisine/source/entered-by/max-time/min-rating), results grouped
   by course, and a full detail pane. A pure client of `GET /recipes` +
   `GET /recipes/{id}`; linked from the admin recipe library.
-- **`display.html`** — a read-only calendar view for a browser or wall tablet.
-  It opens an `EventSource` on `/stream` and live-refreshes when data changes
-  (shown by a blinking "live" dot).
+- **`display.html`** — a browser mirror of the Inky panel itself: a fixed
+  800x480 "device" box scaled to fit the viewport, the same 6-colour ACeP
+  palette and per-day event cap as the firmware. Useful for previewing what
+  the e-ink device will draw without walking over to it. Opens an
+  `EventSource` on `/stream` and live-refreshes when data changes (shown by a
+  blinking "live" dot).
+- **`tablet.html`** — a *native* large-screen display view for a wall-mounted
+  tablet (e.g. a Galaxy Tab S10 Ultra), not an Inky emulation: no fixed device
+  box or 6-colour palette, more events per day, real typography, touch nav.
+  Consumes the identical `/display-data` + `/stream` feed as `display.html`
+  and the firmware — all three are independent renderers of the same
+  pre-computed payload (see "Data flow" below). Runs unattended on an AMOLED
+  screen, so it also carries logic neither other surface needs: a dark
+  ambient/idle ladder (dim → clock-only → black) driven by touch and optional
+  front-camera motion detection (a coarse on-device frame-difference — frames
+  never leave the tablet), slow pixel drift to avoid burn-in, a
+  `navigator.wakeLock` hold, and a fullscreen-on-tap for use under Chrome
+  screen pinning. See `TABLET_SETUP.md` for the Android-side setup.
 
 ## Inky Frame firmware (`_inkyframe/`)
 
@@ -538,7 +554,8 @@ switching (`localtime_helper.py`, EU DST rules).
 2. Backend appends to `events.json`, re-sorts by date, writes the file.
 3. Backend calls `build_display_cache()` → rewrites `cache/display.json`.
 4. Backend `broadcast("update", {"section": "events"})`.
-5. Any open `display.html` receives the SSE event and re-fetches → repaints.
+5. Any open `display.html` or `tablet.html` receives the SSE event and
+   re-fetches → repaints.
 6. The Inky Frame picks up the change on its next poll (button press or the
    00:01 daily refresh).
 
